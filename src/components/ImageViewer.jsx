@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 
-const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
+const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [zoom, setZoom] = useState(1);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
@@ -11,10 +11,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
             if (e.key === 'Escape') onClose();
             if (e.key === 'ArrowRight') onNext();
             if (e.key === 'ArrowLeft') onPrev();
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (onDelete) onDelete();
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev]);
+    }, [onClose, onNext, onPrev, onDelete]);
 
     // Reset zoom and position when image changes
     useEffect(() => {
@@ -136,14 +139,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
                 <div className="opacity-0 group-hover:opacity-100 text-white text-4xl">›</div>
             </div>
 
-            {/* Footer Info & Zoom Level */}
-            <div
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-full text-white text-sm flex gap-4"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <span>{image.name}</span>
-                <span className="text-gray-400">{(zoom * 100).toFixed(0)}%</span>
-            </div>
+
         </div>
     )
 }

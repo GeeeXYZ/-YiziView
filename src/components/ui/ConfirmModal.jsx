@@ -15,7 +15,7 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-neutral-800 border border-neutral-700 p-6 rounded-xl shadow-2xl w-96 transform transition-all scale-100">
                 <h3 className="text-lg font-bold text-gray-200 mb-2">{title || 'Confirm'}</h3>
                 <p className="text-gray-400 mb-6 text-sm leading-relaxed">

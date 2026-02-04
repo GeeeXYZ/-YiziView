@@ -12,6 +12,22 @@
     "preview": "vite preview",
     "lint": "eslint ."
   },
+  "build": {
+    "appId": "com.yiziview.app",
+    "productName": "YiziView",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

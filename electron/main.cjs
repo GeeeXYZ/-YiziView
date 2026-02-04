@@ -11,7 +11,7 @@ try {
   console.error('Failed to load sharp:', e);
 }
 
-let watcher = null;
+const watchers = new Map(); // panelId -> watcher instance
 
 // Register media scheme as privileged
 protocol.registerSchemesAsPrivileged([
@@ -100,39 +100,59 @@ ipcMain.handle('select-folder', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('scan-folder', async (event, folderPath) => {
+ipcMain.handle('scan-folder', async (event, args) => {
+  // Support both old signature (string) and new ({ path, panelId })
+  const folderPath = typeof args === 'string' ? args : args.path;
+  const panelId = typeof args === 'object' ? args.panelId : 'default';
+
   try {
-    // START WATCHER
-    if (watcher) {
-      await watcher.close();
+    // 1. Manage Watcher for this panel
+    if (watchers.has(panelId)) {
+      await watchers.get(panelId).close();
+      watchers.delete(panelId);
     }
-    watcher = chokidar.watch(folderPath, {
-      ignoreInitial: true,
-      depth: 0, // Only watch top level files, similar to readdir
+
+    const w = chokidar.watch(folderPath, {
       ignored: /(^|[\/\\])\../, // ignore dotfiles
-      persistent: true
+      persistent: true,
+      ignoreInitial: true,
+      depth: 0
     });
 
-    watcher.on('add', (path) => {
-      event.sender.send('folder-change', { type: 'add', path });
+    w.on('add', (path) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('folder-change', { type: 'add', path });
+      }
     });
-    watcher.on('unlink', (path) => {
-      event.sender.send('folder-change', { type: 'unlink', path });
-    });
-    // We could watch 'change' too, but for image viewer, mainly add/delete matters.
-    // Maybe later 'change' for modification.
 
+    w.on('unlink', (path) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('folder-change', { type: 'unlink', path });
+      }
+    });
+
+    watchers.set(panelId, w);
+
+    // 2. Read Files
     const files = await fs.readdir(folderPath);
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'];
+    // Use pathToFileURL for safe encoding (handles Chinese, spaces, #, etc.)
+    const { pathToFileURL } = require('url');
 
-    // Filter for images and create full paths
     const images = files
       .filter(file => imageExtensions.includes(path.extname(file).toLowerCase()))
-      .map(file => ({
-        name: file,
-        path: path.join(folderPath, file),
-        url: `media://local/${path.join(folderPath, file).replace(/\\/g, '/')}` // Use custom protocol with dummy host
-      }));
+      .map(file => {
+        const fullPath = path.join(folderPath, file);
+        const fileUrl = pathToFileURL(fullPath).href; // file:///C:/... (encoded)
+        // Convert to media schema
+        const mediaUrl = fileUrl.replace('file:///', 'media://local/');
+
+        return {
+          name: file,
+          path: fullPath,
+          url: mediaUrl
+        };
+      });
 
     return images;
   } catch (error) {
@@ -151,9 +171,22 @@ ipcMain.handle('trash-file', async (event, filePath) => {
     try {
       const data = await fs.readFile(fileTagsPath, 'utf-8');
       const fileTags = JSON.parse(data);
-      if (fileTags[filePath] || fileTags[p]) {
-        delete fileTags[filePath]; // Try both original and normalized
-        delete fileTags[p];
+
+      // Normalize the deleted file path for comparison
+      const normalizedDeletedPath = path.normalize(filePath).toLowerCase();
+
+      // Find and remove all matching entries (handles different path formats)
+      let changed = false;
+      for (const key of Object.keys(fileTags)) {
+        const normalizedKey = path.normalize(key).toLowerCase();
+        if (normalizedKey === normalizedDeletedPath) {
+          delete fileTags[key];
+          changed = true;
+          console.log(`Cleaned up tag entry for deleted file: ${key}`);
+        }
+      }
+
+      if (changed) {
         await fs.writeFile(fileTagsPath, JSON.stringify(fileTags, null, 2));
       }
     } catch (e) {
@@ -215,7 +248,17 @@ ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
     try {
       const fileName = path.basename(src);
       const dest = path.join(targetPath, fileName);
-      await fs.rename(src, dest);
+      try {
+        await fs.rename(src, dest);
+      } catch (err) {
+        if (err.code === 'EXDEV') {
+          // Cross-device move: copy then delete
+          await fs.cp(src, dest, { recursive: true });
+          await fs.rm(src, { recursive: true, force: true });
+        } else {
+          throw err;
+        }
+      }
       successCount++;
     } catch (error) {
       console.error(`Error moving ${src}:`, error);
@@ -347,6 +390,27 @@ ipcMain.handle('save-favorites', async (event, favorites) => {
   }
 });
 
+const sessionPath = path.join(app.getPath('userData'), 'session.json');
+
+ipcMain.handle('get-session', async () => {
+  try {
+    const data = await fs.readFile(sessionPath, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    return null;
+  }
+});
+
+ipcMain.handle('save-session', async (event, session) => {
+  try {
+    await fs.writeFile(sessionPath, JSON.stringify(session, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving session:', error);
+    return false;
+  }
+});
+
 ipcMain.on('start-drag', (event, filePaths) => {
   const iconName = path.join(__dirname, 'assets', 'drag_icon.png');
 
@@ -444,6 +508,58 @@ ipcMain.handle('delete-tag', async (event, tagName) => {
   }
 });
 
+ipcMain.handle('rename-tag', async (event, { oldName, newName }) => {
+  try {
+    if (!oldName || !newName || oldName === newName) return [];
+
+    // 1. Update tags definitions
+    let tags = [];
+    try {
+      const data = await fs.readFile(tagsPath, 'utf-8');
+      tags = JSON.parse(data);
+    } catch (e) { tags = []; }
+
+    const tagIndex = tags.findIndex(t => t.name === oldName);
+    if (tagIndex === -1) return tags; // Tag not found
+
+    // Check if new name already exists
+    if (tags.find(t => t.name === newName)) {
+      // Merge? or Error? For now simple error or skip
+      console.warn('Tag rename failed: new name already exists');
+      return tags;
+    }
+
+    tags[tagIndex].name = newName;
+    await fs.writeFile(tagsPath, JSON.stringify(tags, null, 2));
+
+    // 2. Update file associations
+    let fileTags = {};
+    let changed = false;
+    try {
+      const ftData = await fs.readFile(fileTagsPath, 'utf-8');
+      fileTags = JSON.parse(ftData);
+    } catch (e) { }
+
+    for (const filePath in fileTags) {
+      const fileTagList = fileTags[filePath];
+      if (fileTagList.includes(oldName)) {
+        // Replace oldName with newName
+        fileTags[filePath] = fileTagList.map(t => t === oldName ? newName : t);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await fs.writeFile(fileTagsPath, JSON.stringify(fileTags, null, 2));
+    }
+
+    return tags;
+  } catch (error) {
+    console.error('Error renaming tag:', error);
+    return [];
+  }
+});
+
 const fileTagsPath = path.join(app.getPath('userData'), 'file_tags.json');
 
 ipcMain.handle('add-files-to-tag', async (event, { files, tagName }) => {
@@ -533,12 +649,20 @@ ipcMain.handle('get-files-by-tag', async (event, { tagNames, mode }) => {
       }
 
       if (match) {
-        const name = path.basename(filePath);
-        matchingFiles.push({
-          name,
-          path: filePath,
-          url: `media://local/${filePath.replace(/\\/g, '/')}`
-        });
+        // Check if file actually exists before including it
+        try {
+          await fs.access(filePath);
+          const name = path.basename(filePath);
+          matchingFiles.push({
+            name,
+            path: filePath,
+            url: `media://local/${filePath.replace(/\\/g, '/')}`
+          });
+        } catch (e) {
+          // File doesn't exist, skip it
+          // Optionally clean up the stale entry (but we'll do this separately to avoid slowing down queries)
+          console.warn(`File in tags database no longer exists: ${filePath}`);
+        }
       }
     }
     return matchingFiles;
@@ -624,14 +748,22 @@ ipcMain.handle('read-clipboard', async () => {
     const psTimeout = new Promise(resolve => setTimeout(() => resolve('timeout'), 2000));
 
     const psRun = new Promise((resolve) => {
-      // Updated command: Check for FullName, fallback to object string
-      const cmd = 'powershell -ExecutionPolicy Bypass -NoProfile -Command "Get-Clipboard -Format FileDropList | ForEach-Object { if ($_.FullName) { $_.FullName } else { $_ } }"';
+      // Updated command: Use JSON encoding to avoid console encoding issues (GBK/UTF-8)
+      const cmd = 'powershell -ExecutionPolicy Bypass -NoProfile -Command "& { @(Get-Clipboard -Format FileDropList).FullName | ConvertTo-Json -Compress }"';
       exec(cmd, (error, stdout) => {
         if (error) {
           console.error('PS Error:', error);
           resolve('');
         } else {
-          resolve(stdout.trim());
+          try {
+            const json = JSON.parse(stdout.trim());
+            const paths = Array.isArray(json) ? json.join('\n') : json;
+            resolve(paths);
+          } catch (e) {
+            // If not valid JSON, process output empty or fallback
+            // console.warn('PS JSON Parse Error (maybe empty):', e); 
+            resolve('');
+          }
         }
       });
     });
@@ -750,8 +882,8 @@ ipcMain.handle('get-thumbnail', async (event, filePath) => {
     } catch {
       // Generate
       await sharp(filePath)
-        .resize(300, 300, { fit: 'cover' }) // Reasonable thumbnail size
-        .jpeg({ quality: 80 })
+        .resize(600, 600, { fit: 'outside', withoutEnlargement: true }) // Ensure both sides are at least 600
+        .jpeg({ quality: 85 })
         .toFile(cachePath);
 
       return `media://local/${cachePath.replace(/\\/g, '/')}`;
@@ -762,3 +894,96 @@ ipcMain.handle('get-thumbnail', async (event, filePath) => {
     return `media://local/${filePath.replace(/\\/g, '/')}`;
   }
 });
+ipcMain.handle('clear-thumbnail-cache', async () => {
+  const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+  try {
+    const files = await fs.readdir(cacheDir);
+    for (const file of files) {
+      await fs.unlink(path.join(cacheDir, file));
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to clear thumbnail cache:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('export-tags', async () => {
+  const { filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Tags Data',
+    defaultPath: 'yiziview_tags_backup.json',
+    filters: [{ name: 'JSON Files', extensions: ['json'] }]
+  });
+
+  if (!filePath) return { success: false };
+
+  try {
+    let tags = [];
+    try { tags = JSON.parse(await fs.readFile(tagsPath, 'utf8')); } catch (e) { }
+
+    let fileTags = {};
+    try { fileTags = JSON.parse(await fs.readFile(fileTagsPath, 'utf8')); } catch (e) { }
+
+    const exportData = { tags, fileTags };
+    await fs.writeFile(filePath, JSON.stringify(exportData, null, 2));
+
+    return { success: true, path: filePath };
+  } catch (error) {
+    console.error('Failed to export tags:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('import-tags', async () => {
+  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Tags Data',
+    filters: [{ name: 'JSON Files', extensions: ['json'] }],
+    properties: ['openFile']
+  });
+
+  if (!filePaths || filePaths.length === 0) return { success: false };
+
+  try {
+    const importData = JSON.parse(await fs.readFile(filePaths[0], 'utf8'));
+
+    // Import Tag List
+    if (importData.tags && Array.isArray(importData.tags)) {
+      let currentTags = [];
+      try { currentTags = JSON.parse(await fs.readFile(tagsPath, 'utf8')); } catch (e) { }
+
+      // Merge tags by name
+      const tagMap = new Map();
+      currentTags.forEach(t => tagMap.set(t.name, t));
+      importData.tags.forEach(t => {
+        if (!tagMap.has(t.name)) {
+          tagMap.set(t.name, t);
+        }
+      });
+      await fs.writeFile(tagsPath, JSON.stringify(Array.from(tagMap.values()), null, 2));
+    }
+
+    // Import File-Tag Associations
+    if (importData.fileTags && typeof importData.fileTags === 'object') {
+      let currentFileTags = {};
+      try { currentFileTags = JSON.parse(await fs.readFile(fileTagsPath, 'utf8')); } catch (e) { }
+
+      const mergedFileTags = { ...currentFileTags };
+      for (const [fPath, tags] of Object.entries(importData.fileTags)) {
+        if (mergedFileTags[fPath]) {
+          mergedFileTags[fPath] = Array.from(new Set([...mergedFileTags[fPath], ...tags]));
+        } else {
+          mergedFileTags[fPath] = tags;
+        }
+      }
+      await fs.writeFile(fileTagsPath, JSON.stringify(mergedFileTags, null, 2));
+    }
+
+    return { success: true, count: (importData.tags?.length || 0) };
+  } catch (error) {
+    console.error('Failed to import tags:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-dirname', (event, p) => path.dirname(p));
+ipcMain.handle('get-basename', (event, p) => path.basename(p));

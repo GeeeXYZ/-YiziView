@@ -29,8 +29,10 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Ensure buttons/inputs inside drag region are clickable */
+/* Explicit no-drag class for interactive elements */
+.no-drag,
 .titlebar-drag-region button,
-.titlebar-drag-region input {
+.titlebar-drag-region input,
+.titlebar-drag-region a {
   -webkit-app-region: no-drag;
 }

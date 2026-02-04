@@ -4,7 +4,6 @@ import { FileSystem } from '@/managers/FileSystem'
 import { ConfigManager } from '@/managers/ConfigManager'
 import FolderTree from './FolderTree'
 import ConfirmModal from './ui/ConfirmModal'
-import logo from '@/assets/logo.svg';
 import {
     File,
     FolderOpen,
@@ -38,6 +37,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
     const [editingTag, setEditingTag] = useState(null); // { name, newName }
     const [inputModal, setInputModal] = useState(null); // { type: 'rename'|'create', target, value }
     const [confirmModal, setConfirmModal] = useState(null);
+    const [dragOverTag, setDragOverTag] = useState(null);
 
     // Resize State
     const [foldersHeight, setFoldersHeight] = useState(200); // Initial height for folders section
@@ -46,6 +46,17 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
     useEffect(() => {
         loadFavorites();
         loadTags();
+
+        const handleFavoritesUpdate = (e) => {
+            if (e.detail) {
+                setFavorites(e.detail);
+            } else {
+                loadFavorites();
+            }
+        };
+
+        window.addEventListener('favorites-updated', handleFavoritesUpdate);
+        return () => window.removeEventListener('favorites-updated', handleFavoritesUpdate);
     }, []);
 
     // Resize Logic
@@ -182,6 +193,50 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
         if (onTagSelect) onTagSelect(Array.from(newSelection), filterMode);
     };
 
+    const handleStartRename = (e, tag) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEditingTag({ name: tag.name, newName: tag.name });
+    };
+
+    const handleRenameKeyDown = async (e) => {
+        if (e.key === 'Enter') {
+            await handleRenameSubmit();
+        } else if (e.key === 'Escape') {
+            setEditingTag(null);
+        }
+    };
+
+    const handleRenameSubmit = async () => {
+        if (!editingTag) return;
+        const { name, newName } = editingTag;
+        const trimmedNewName = newName.trim();
+        if (!trimmedNewName || name === trimmedNewName) {
+            setEditingTag(null);
+            return;
+        }
+
+        try {
+            const newTags = await ConfigManager.renameTag(name, trimmedNewName);
+            if (Array.isArray(newTags)) {
+                setTags(newTags);
+
+                // Update selectedTags if the renamed tag was selected
+                if (selectedTags.has(name)) {
+                    const newSelected = new Set(selectedTags);
+                    newSelected.delete(name);
+                    newSelected.add(trimmedNewName);
+                    setSelectedTags(newSelected);
+                    if (onTagSelect) onTagSelect(Array.from(newSelected), filterMode);
+                }
+            }
+            setEditingTag(null);
+        } catch (e) {
+            console.error('Failed to rename tag:', e);
+            setEditingTag(null);
+        }
+    };
+
     const handleModeChange = (mode) => {
         setFilterMode(mode);
         if (onTagSelect) onTagSelect(Array.from(selectedTags), mode);
@@ -190,6 +245,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
     const handleTagDrop = async (e, tagName) => {
         e.preventDefault();
         e.stopPropagation();
+        setDragOverTag(null);
 
         // Try to get data
         try {
@@ -219,7 +275,11 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
         e.dataTransfer.dropEffect = 'copy';
     };
 
-    const filteredTags = Array.isArray(tags) ? tags.filter(t => t.name.toLowerCase().includes(tagSearch.toLowerCase())) : [];
+    const filteredTags = Array.isArray(tags)
+        ? tags
+            .filter(t => t.name.toLowerCase().includes(tagSearch.toLowerCase()))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        : [];
 
 
 
@@ -227,17 +287,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
 
     return (
         <div className="flex flex-col h-full bg-neutral-800">
-            {/* Header */}
-            <div className="p-4 border-b border-neutral-700 flex justify-between items-center bg-neutral-900/50 shrink-0 h-[60px]">
-                <img src={logo} alt="YiziView" className="h-6 w-auto opacity-90" />
-                <button
-                    onClick={handleOpenFolder}
-                    className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white text-xs py-1.5 px-3 rounded flex items-center gap-1.5 border border-neutral-700 transition-colors"
-                >
-                    <Plus size={14} /> Add Folder
-                </button>
-            </div>
-
             {/* Split Container */}
             <div className="flex-1 flex flex-col min-h-0">
 
@@ -353,17 +402,38 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                                 <div
                                     key={tag.name}
                                     onClick={(e) => handleTagClick(tag.name, e)}
-                                    onContextMenu={(e) => handleTagContextMenu(e, tag)}
+                                    onDoubleClick={(e) => handleStartRename(e, tag)}
+                                    // 
                                     onDrop={(e) => handleTagDrop(e, tag.name)}
                                     onDragOver={handleDragOver}
+                                    onDragEnter={() => setDragOverTag(tag.name)}
+                                    onDragLeave={(e) => {
+                                        if (!e.currentTarget.contains(e.relatedTarget)) {
+                                            setDragOverTag(null);
+                                        }
+                                    }}
                                     className={`
-                                            group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all text-xs
+                                            group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer transition-all text-xs border border-transparent
                                             ${selectedTags.has(tag.name) ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-neutral-700 hover:text-gray-200'}
+                                            ${dragOverTag === tag.name ? '!border-blue-500 !bg-blue-900/40' : ''}
                                         `}
                                 >
-                                    <div className="flex items-center gap-2 truncate">
-                                        <Tag size={13} />
-                                        <span className="truncate">{tag.name}</span>
+                                    <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                                        <Tag size={13} className="shrink-0" />
+                                        {editingTag?.name === tag.name ? (
+                                            <input
+                                                autoFocus
+                                                type="text"
+                                                className="bg-neutral-900 border border-blue-500 rounded px-1 py-0 w-full text-xs text-white focus:outline-none"
+                                                value={editingTag.newName}
+                                                onChange={(e) => setEditingTag({ ...editingTag, newName: e.target.value })}
+                                                onKeyDown={handleRenameKeyDown}
+                                                onBlur={handleRenameSubmit}
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                        ) : (
+                                            <span className="truncate" title={tag.name}>{tag.name}</span>
+                                        )}
                                     </div>
                                     <button
                                         onClick={(e) => handleDeleteTag(e, tag.name)}

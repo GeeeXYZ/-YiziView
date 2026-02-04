@@ -4,7 +4,7 @@ import { ConfigManager } from '../managers/ConfigManager';
 import { FileSystem } from '../managers/FileSystem';
 import { X, FileText, Copy, Tag } from 'lucide-react';
 
-const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio }) => {
+const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio, isViewing = false }) => {
     const [commonTags, setCommonTags] = useState([]);
     const [loadingTags, setLoadingTags] = useState(false);
 
@@ -72,10 +72,6 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
 
             // 1. Try A1111 / Parameters
             if (metadata.parameters) {
-                // Parse "Positive" and "Negative"
-                // Format usually: "Positive Prompt\nNegative prompt: Negative..."
-                // Or just "Pos..."
-                // Heuristic split
                 const text = metadata.parameters;
                 let pos = text;
                 let neg = '';
@@ -84,7 +80,6 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                 if (negIndex !== -1) {
                     pos = text.substring(0, negIndex).trim();
                     const afterNeg = text.substring(negIndex + 'Negative prompt:'.length);
-                    // Find steps which usually ends negative prompt
                     const stepsIndex = afterNeg.indexOf('Steps:');
                     if (stepsIndex !== -1) {
                         neg = afterNeg.substring(0, stepsIndex).trim();
@@ -92,24 +87,18 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                         neg = afterNeg.trim();
                     }
                 } else {
-                    // Maybe check for "Steps:" to cut off params
                     const stepsIndex = text.indexOf('Steps:');
                     if (stepsIndex !== -1) {
                         pos = text.substring(0, stepsIndex).trim();
                     }
                 }
-
                 setPrompts({ positive: pos, negative: neg, type: 'a1111' });
             }
             // 2. Try ComfyUI Prompt (JSON)
             else if (metadata.prompt) {
                 try {
-                    // Sanitize JSON
                     const sanitizedPrompt = metadata.prompt.replace(/:\s*NaN/g, ': null').replace(/\[\s*NaN\s*\]/g, '[null]').replace(/,\s*NaN\s*\]/g, ', null]').replace(/\[\s*NaN\s*,/g, '[null,');
                     const json = JSON.parse(sanitizedPrompt);
-
-                    // Strategy: Trace from KSampler
-                    // 1. Find KSampler nodes
                     const samplers = Object.values(json).filter(node =>
                         node.class_type && (
                             node.class_type.includes('Sampler') ||
@@ -118,70 +107,36 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                             node.class_type === 'KSamplerAdvanced'
                         )
                     );
-
                     const foundPos = new Set();
                     const foundNeg = new Set();
-
-                    // Recursive helper to find text in conditioning chain
                     const findTextInChain = (nodeId, visited = new Set()) => {
                         if (!nodeId || visited.has(nodeId)) return [];
                         visited.add(nodeId);
-
                         const node = json[nodeId];
                         if (!node) return [];
-
                         const texts = [];
-
-                        // Check direct text inputs
                         const textKeys = ['text', 'text_g', 'text_l', 'positive', 'negative', 'string', 'value', 'prompt'];
                         textKeys.forEach(key => {
                             if (node.inputs && node.inputs[key]) {
                                 const val = node.inputs[key];
                                 if (typeof val === 'string' && val.trim().length > 1 && !val.startsWith('%')) {
-                                    // Exclude obviously technical strings if needed, or keeping them is fine.
-                                    // Check for Primitive Node behavior where 'value' is the text
                                     texts.push(val);
                                 } else if (Array.isArray(val)) {
-                                    // Link: [NodeID, Slot]
-                                    // Should we trace TEXT inputs? 
-                                    // Usually text input comes from Primitive node. 
-                                    // If we are looking at 'text' input and it's a link, traverse it.
                                     if (['text', 'text_g', 'text_l', 'string', 'value'].includes(key)) {
                                         texts.push(...findTextInChain(val[0], visited));
                                     }
                                 }
                             }
                         });
-
-                        // If this node is strictly a CLIPTextEncode-like node, we are good.
-                        // If it's a Combiner or Reroute, we might need to trace 'input' or similar?
-                        // But usually KSampler -> positive -> [CLIPTextEncode] or [Combine -> [CLIPTextEncode, ...]]
-                        // KSampler inputs are 'positive', 'negative' (Conditioning).
-                        // If we are tracing Conditioning, we shouldn't look for 'text' keys immediately on the Combiner?
-                        // Combiner usually takes 'conditioning_1', 'conditioning_2'.
-                        // This recursion logic is mixed (Searching for text AND tracing connections).
-
-                        // Let's split: Trace Conditioning vs Finding Text.
-                        // But simpler heuristic:
-                        // Just traverse ALL inputs that are Links.
-                        // And if ANY node in the chain has a 'text'/'value' field that looks like a prompt, grab it.
-
-                        // Heuristic Recursion:
-                        // If this node has typical text fields, grab them.
-                        // Then recurse into inputs that are links (Conditioning or Text links).
                         if (node.inputs) {
                             Object.values(node.inputs).forEach(val => {
                                 if (Array.isArray(val) && val.length === 2) {
-                                    // It's a link. Trace it.
-                                    // Limit depth or just rely on visited set.
                                     texts.push(...findTextInChain(val[0], visited));
                                 }
                             });
                         }
-
                         return texts;
                     };
-
                     samplers.forEach(sampler => {
                         if (sampler.inputs) {
                             if (sampler.inputs.positive && Array.isArray(sampler.inputs.positive)) {
@@ -192,15 +147,12 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                                 const texts = findTextInChain(sampler.inputs.negative[0]);
                                 texts.forEach(t => foundNeg.add(t));
                             }
-                            // Efficient Loader specific
                             if (sampler.class_type.includes('Efficient Loader')) {
                                 if (typeof sampler.inputs.positive === 'string') foundPos.add(sampler.inputs.positive);
                                 if (typeof sampler.inputs.negative === 'string') foundNeg.add(sampler.inputs.negative);
                             }
                         }
                     });
-
-                    // Fallback: If no samplers found or trace failed, dump all CLIPTextEncode
                     if (foundPos.size === 0 && foundNeg.size === 0) {
                         Object.values(json).forEach(node => {
                             if (node.class_type && node.class_type.includes('TextEncode')) {
@@ -210,7 +162,6 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                             }
                         });
                     }
-
                     if (foundPos.size > 0 || foundNeg.size > 0) {
                         setPrompts({
                             positive: Array.from(foundPos).join('\n\n'),
@@ -218,12 +169,10 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                             type: 'comfy'
                         });
                     }
-
                 } catch (e) {
                     console.error('Failed to parse ComfyUI prompt JSON:', e);
                 }
             }
-
         } catch (error) {
             console.error('Failed to load prompts:', error);
         } finally {
@@ -238,17 +187,14 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
         });
 
         await ConfigManager.removeFilesFromTag(selectedFiles, tagName);
-        // Refresh tags
         await loadTags();
-        // Notify parent to refresh if needed (e.g. if we are in Tag View, removing tag might remove image from view)
         if (onTagsChange) onTagsChange();
     };
 
-    // if (!selectedIndices || selectedIndices.size === 0) return null; // Removed to show panel always for ratio switcher
     const hasSelection = selectedIndices && selectedIndices.size > 0;
 
     return (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-[100] w-full pointer-events-none">
+        <div className={`${isViewing ? 'fixed' : 'absolute'} ${isViewing ? 'bottom-6' : 'bottom-4'} left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-[50] max-w-[95%] pointer-events-none transition-all`}>
 
             {/* Prompts Panel (Expandable) */}
             {(prompts.positive || prompts.negative) && (
@@ -290,21 +236,23 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
             )}
 
             {/* Main Bar */}
-            <div className="pointer-events-auto bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-full px-6 py-2 shadow-2xl flex items-center gap-4 transition-all">
+            <div className="pointer-events-auto bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-full px-6 py-2 shadow-2xl flex items-center gap-4 transition-all w-max">
                 {hasSelection && (
                     <>
-                        <div className="text-gray-400 text-xs font-medium border-r border-neutral-700 pr-4">
-                            {selectedIndices.size} Selected
-                        </div>
+                        {!isViewing && (
+                            <div className="text-gray-400 text-xs font-medium border-r border-neutral-700 pr-4">
+                                {selectedIndices.size} Selected
+                            </div>
+                        )}
 
                         {loadingTags ? (
-                            <div className="text-gray-500 text-xs">Loading tags...</div>
+                            <div className="text-gray-500 text-xs text-center min-w-[60px]">Loading...</div>
                         ) : commonTags.length === 0 ? (
-                            <div className="text-gray-500 text-xs italic">No tags</div>
+                            <div className="text-gray-500 text-xs italic text-center min-w-[60px]">No tags</div>
                         ) : (
                             <div className="flex items-center gap-2">
                                 {commonTags.slice(0, 5).map(tag => (
-                                    <div key={tag} className="flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-gray-300 text-xs px-2 py-1 rounded-full transition-colors">
+                                    <div key={tag} className="flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-gray-300 text-xs px-2 py-1 rounded-full transition-colors whitespace-nowrap">
                                         <span>{tag}</span>
                                         <button
                                             onClick={() => handleRemoveTag(tag)}
@@ -316,64 +264,70 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                                     </div>
                                 ))}
                                 {commonTags.length > 5 && (
-                                    <span className="text-gray-500 text-xs">+{commonTags.length - 5} more</span>
+                                    <span className="text-gray-500 text-xs">+{commonTags.length - 5}</span>
                                 )}
                             </div>
                         )}
                     </>
                 )}
-                {!hasSelection && (
+
+                {!hasSelection && !isViewing && (
                     <div className="text-gray-500 text-xs italic border-r border-neutral-700 pr-4">
                         No selection
                     </div>
                 )}
 
-                {/* Right: Aspect Ratio & Tag Info */}
-                <div className="flex items-center gap-4">
-                    {/* Aspect Ratio Switcher */}
-                    <div className="flex items-center bg-neutral-900 rounded-md border border-neutral-700 p-0.5">
-                        {[
-                            { id: '9:16', title: '9:16 Portrait', width: 9, height: 16 },
-                            { id: '3:4', title: '3:4 Portrait', width: 12, height: 16 },
-                            { id: '1:1', title: '1:1 Square', width: 14, height: 14 },
-                            { id: '4:3', title: '4:3 Landscape', width: 16, height: 12 },
-                            { id: '16:9', title: '16:9 Landscape', width: 16, height: 9 },
-                        ].map(ratio => (
-                            <button
-                                key={ratio.id}
-                                onClick={() => setAspectRatio(ratio.id)}
-                                className={`p-1.5 rounded transition-colors flex items-center justify-center w-8 h-8 ${aspectRatio === ratio.id ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
-                                title={ratio.title}
-                            >
-                                <div
-                                    className="border-2 border-current rounded-[2.5px]"
-                                    style={{
-                                        width: `${ratio.width}px`,
-                                        height: `${ratio.height}px`
-                                    }}
-                                />
-                            </button>
-                        ))}
+                {/* Right Area */}
+                {!isViewing ? (
+                    <div className="flex items-center gap-4 border-l border-neutral-700 pl-4">
+                        <div className="flex items-center bg-neutral-900 rounded-md border border-neutral-700 p-0.5">
+                            {[
+                                { id: '9:16', title: '9:16 Portrait', width: 9, height: 16 },
+                                { id: '3:4', title: '3:4 Portrait', width: 12, height: 16 },
+                                { id: '1:1', title: '1:1 Square', width: 14, height: 14 },
+                                { id: '4:3', title: '4:3 Landscape', width: 16, height: 12 },
+                                { id: '16:9', title: '16:9 Landscape', width: 16, height: 9 },
+                            ].map(ratio => (
+                                <button
+                                    key={ratio.id}
+                                    onClick={() => setAspectRatio(ratio.id)}
+                                    className={`p-1.5 rounded transition-colors flex items-center justify-center w-8 h-8 ${aspectRatio === ratio.id ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                    title={ratio.title}
+                                >
+                                    <div
+                                        className="border-2 border-current rounded-[2.5px]"
+                                        style={{
+                                            width: `${ratio.width}px`,
+                                            height: `${ratio.height}px`
+                                        }}
+                                    />
+                                </button>
+                            ))}
+                        </div>
                     </div>
-
-
-                </div>
+                ) : (
+                    selectedIndices.size === 1 && images[Array.from(selectedIndices)[0]] && (
+                        <div className="text-gray-300 text-xs font-medium border-l border-neutral-700 pl-4 max-w-[250px] truncate">
+                            {images[Array.from(selectedIndices)[0]].name}
+                        </div>
+                    )
+                )}
 
                 {/* Prompt Toggle Button */}
                 {selectedIndices.size === 1 && (prompts.positive || prompts.negative) && (
-                    <>
+                    <div className="flex items-center">
                         <div className="h-4 w-px bg-neutral-700 mx-2"></div>
                         <button
                             onClick={() => setShowPrompts(!showPrompts)}
                             className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${showPrompts ? 'text-blue-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             <FileText size={14} />
-                            {showPrompts ? 'Hide Prompt' : 'Show Prompt'}
+                            {showPrompts ? 'Hide' : 'Prompt'}
                         </button>
-                    </>
+                    </div>
                 )}
             </div>
-        </div >
+        </div>
     );
 };
 

@@ -27,6 +27,7 @@ export const ConfigManager = {
         if (!favorites.includes(folderPath)) {
             const newFavorites = [...favorites, folderPath];
             await FileSystem.saveFavorites(newFavorites);
+            window.dispatchEvent(new CustomEvent('favorites-updated', { detail: newFavorites }));
             return newFavorites;
         }
         return favorites;
@@ -41,6 +42,7 @@ export const ConfigManager = {
         const favorites = await FileSystem.getFavorites();
         const newFavorites = favorites.filter(p => p !== folderPath);
         await FileSystem.saveFavorites(newFavorites);
+        window.dispatchEvent(new CustomEvent('favorites-updated', { detail: newFavorites }));
         return newFavorites;
     },
 
@@ -51,6 +53,10 @@ export const ConfigManager = {
 
     createTag: async (tagName) => {
         return await FileSystem.createTag(tagName);
+    },
+
+    renameTag: async (oldName, newName) => {
+        return await FileSystem.renameTag(oldName, newName);
     },
 
     deleteTag: async (tagName) => {
@@ -71,5 +77,14 @@ export const ConfigManager = {
 
     getTagsForFiles: async (filePaths) => {
         return await FileSystem.getTagsForFiles(filePaths);
+    },
+
+    // --- Session ---
+    getSession: async () => {
+        return await FileSystem.getSession();
+    },
+
+    saveSession: async (session) => {
+        return await FileSystem.saveSession(session);
     }
 };

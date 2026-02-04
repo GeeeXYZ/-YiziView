@@ -13,13 +13,11 @@ export const FileSystem = {
 
     /**
      * Scan a folder for images.
-     * @param {string} folderPath 
-     * @returns {Promise<Array>}
      */
-    scanFolder: async (folderPath) => {
+    scanFolder: async (folderPath, panelId) => {
         if (!folderPath) return [];
         try {
-            return await window.electron.scanFolder(folderPath);
+            return await window.electron.scanFolder(folderPath, panelId);
         } catch (e) {
             console.error(e);
             return [];
@@ -120,16 +118,49 @@ export const FileSystem = {
         return await window.electron.moveItems(sourcePaths, targetPath);
     },
 
+    // Internal Clipboard State
+    _clipboardState: { action: 'copy', paths: [] },
+
     copyItems: async (sourcePaths, targetPath) => {
         return await window.electron.copyItems(sourcePaths, targetPath);
     },
 
     copyToClipboard: async (paths) => {
+        FileSystem._clipboardState = { action: 'copy', paths };
+        return await window.electron.copyToClipboard(paths);
+    },
+
+    cutToClipboard: async (paths) => {
+        FileSystem._clipboardState = { action: 'cut', paths };
         return await window.electron.copyToClipboard(paths);
     },
 
     readClipboard: async () => {
         return await window.electron.readClipboard();
+    },
+
+    pasteFromClipboard: async (targetPath) => {
+        const internalState = FileSystem._clipboardState;
+        let sources = [];
+        let isCut = false;
+
+        if (internalState && internalState.paths && internalState.paths.length > 0) {
+            sources = internalState.paths;
+            isCut = internalState.action === 'cut';
+        } else {
+            sources = await FileSystem.readClipboard();
+        }
+
+        if (sources.length === 0) return 0;
+
+        let successCount = 0;
+        if (isCut) {
+            successCount = await window.electron.moveItems(sources, targetPath);
+            FileSystem._clipboardState = { action: 'copy', paths: [] };
+        } else {
+            successCount = await window.electron.copyItems(sources, targetPath);
+        }
+        return successCount;
     },
 
     getTags: async () => {
@@ -138,6 +169,10 @@ export const FileSystem = {
 
     createTag: async (tagName) => {
         return await window.electron.createTag(tagName);
+    },
+
+    renameTag: async (oldName, newName) => {
+        return await window.electron.renameTag(oldName, newName);
     },
 
     deleteTag: async (tagName) => {
@@ -166,5 +201,17 @@ export const FileSystem = {
 
     getThumbnail: async (filePath) => {
         return await window.electron.getThumbnail(filePath);
+    },
+
+    startDrag: (paths) => {
+        window.electron.startDrag(paths);
+    },
+
+    getSession: async () => {
+        return await window.electron.getSession();
+    },
+
+    saveSession: async (session) => {
+        return await window.electron.saveSession(session);
     }
 };

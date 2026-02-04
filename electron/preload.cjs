@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('electron', {
     ping: () => ipcRenderer.invoke('ping'),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
-    scanFolder: (path) => ipcRenderer.invoke('scan-folder', path),
+    scanFolder: (path, panelId) => ipcRenderer.invoke('scan-folder', { path, panelId }),
     trashFile: (path) => ipcRenderer.invoke('trash-file', path),
     startDrag: (path) => ipcRenderer.send('start-drag', path),
     // File System
@@ -35,8 +35,16 @@ contextBridge.exposeInMainWorld('electron', {
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
     saveFavorites: (favorites) => ipcRenderer.invoke('save-favorites', favorites),
 
+    // Session
+    getSession: () => ipcRenderer.invoke('get-session'),
+    saveSession: (session) => ipcRenderer.invoke('save-session', session),
+
     // File Watcher
-    onFolderChange: (callback) => ipcRenderer.on('folder-change', callback),
+    onFolderChange: (callback) => {
+        const subscription = (event, ...args) => callback(event, ...args);
+        ipcRenderer.on('folder-change', subscription);
+        return () => ipcRenderer.removeListener('folder-change', subscription);
+    },
 
     // Clipboard
     copyToClipboard: (paths) => ipcRenderer.invoke('copy-to-clipboard', paths),
@@ -45,6 +53,7 @@ contextBridge.exposeInMainWorld('electron', {
     // Tag System
     getTags: () => ipcRenderer.invoke('get-tags'),
     createTag: (tagName) => ipcRenderer.invoke('create-tag', tagName),
+    renameTag: (oldName, newName) => ipcRenderer.invoke('rename-tag', { oldName, newName }),
     deleteTag: (tagName) => ipcRenderer.invoke('delete-tag', tagName),
     addFilesToTag: (files, tagName) => ipcRenderer.invoke('add-files-to-tag', { files, tagName }),
     removeFilesFromTag: (files, tagName) => ipcRenderer.invoke('remove-files-from-tag', { files, tagName }),
@@ -52,4 +61,13 @@ contextBridge.exposeInMainWorld('electron', {
     getTagsForFiles: (filePaths) => ipcRenderer.invoke('get-tags-for-files', filePaths),
     readImageMetadata: (filePath) => ipcRenderer.invoke('read-image-metadata', filePath),
     getThumbnail: (filePath) => ipcRenderer.invoke('get-thumbnail', filePath),
+
+    // Settings
+    clearThumbnailCache: () => ipcRenderer.invoke('clear-thumbnail-cache'),
+    exportTags: () => ipcRenderer.invoke('export-tags'),
+    importTags: () => ipcRenderer.invoke('import-tags'),
+
+    // Utils
+    getDirname: (p) => ipcRenderer.invoke('get-dirname', p),
+    getBasename: (p) => ipcRenderer.invoke('get-basename', p),
 });

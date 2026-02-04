@@ -9,7 +9,10 @@ import {
     Plus,
     Edit2,
     Trash2,
-    Copy
+    Copy,
+    Scissors,
+    Clipboard,
+    FileInput
 } from 'lucide-react';
 
 const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, onConfirmDelete }) => {
@@ -76,7 +79,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         setContextMenu({ x: e.clientX, y: e.clientY });
     };
 
-    const handleMenuOption = (action) => {
+    const handleMenuOption = async (action) => {
         setContextMenu(null);
         if (action === 'create') {
             setModalConfig({ type: 'create', title: 'New Folder', initialValue: 'New Folder' });
@@ -91,7 +94,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             if (onConfirmDelete) {
                 onConfirmDelete({
                     title: 'Delete Folder',
-                    message: `Are you sure you want to delete "${name}"? This will move it to trash.`,
+                    message: `Are you sure you want to move "${name}" to the Recycle Bin?`,
                     onConfirm: performDelete
                 });
             } else {
@@ -99,6 +102,17 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 if (confirm(`Are you sure you want to delete "${name}"? This will move it to trash.`)) {
                     performDelete();
                 }
+            }
+        } else if (action === 'cut') {
+            FileSystem.cutToClipboard([path]);
+        } else if (action === 'copy') {
+            FileSystem.copyToClipboard([path]);
+        } else if (action === 'paste') {
+            const successCount = await FileSystem.pasteFromClipboard(path);
+            if (successCount > 0) {
+                // Refresh if expanded
+                if (isExpanded) refreshSubfolders();
+                if (onRefresh) onRefresh();
             }
         }
     };
@@ -134,6 +148,8 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const handleDragOver = (e) => {
         e.preventDefault();
         e.stopPropagation();
+        // Force 'copy' visual to ensure drop is allowed by OS/Electron
+        // Actual operation (Move vs Copy) is determined in handleDrop by Ctrl key
         e.dataTransfer.dropEffect = 'copy';
         setIsDragOver(true);
     };
@@ -155,25 +171,22 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
 
         let files = [];
 
-        // 1. Try Internal Drag (yizi/files)
-        try {
-            const internalData = e.dataTransfer.getData('yizi/files');
-            if (internalData) {
-                files = JSON.parse(internalData);
-            }
-        } catch (err) {
-            console.error('Error parsing yizi/files:', err);
-        }
-
-        // 2. Fallback / Append Native Drag (OS files)
-        if (files.length === 0 && e.dataTransfer.files.length > 0) {
+        // Support Native File Drops (OS files)
+        if (e.dataTransfer.files.length > 0) {
             files = Array.from(e.dataTransfer.files)
                 .map(f => window.electron.getFilePath(f))
                 .filter(p => p);
         }
 
         if (files.length > 0) {
-            const successCount = await FileSystem.moveItems(files, path);
+            let successCount = 0;
+            // Ctrl Key -> Copy, Otherwise -> Move
+            if (e.ctrlKey) {
+                successCount = await FileSystem.copyItems(files, path);
+            } else {
+                successCount = await FileSystem.moveItems(files, path);
+            }
+
             if (successCount > 0) {
                 // Refresh if expanded
                 if (isExpanded) refreshSubfolders();
@@ -214,7 +227,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 </span>
 
                 {/* Name */}
-                <span className="truncate">{name}</span>
+                <span className="truncate flex-1 min-w-0" title={name}>{name}</span>
             </div>
 
             {/* Subfolders */}
@@ -250,7 +263,11 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                     onClose={() => setContextMenu(null)}
                     options={[
                         { label: 'New Subfolder', icon: <Plus size={14} />, onClick: () => handleMenuOption('create') },
-                        { label: 'Copy Folder Path', icon: <Copy size={14} />, onClick: () => { navigator.clipboard.writeText(path); setContextMenu(null); } },
+                        { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleMenuOption('cut') },
+                        { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleMenuOption('copy') },
+                        { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleMenuOption('paste') },
+                        { type: 'divider' },
+                        { label: 'Copy Folder Path', icon: <FileInput size={14} />, onClick: () => { navigator.clipboard.writeText(path); setContextMenu(null); } },
                         { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleMenuOption('rename') },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleMenuOption('delete'), danger: true },
                     ]}

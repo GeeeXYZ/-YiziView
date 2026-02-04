@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react' // Added useState and useEffect to import
+import React, { useState, useEffect } from 'react'
 import { FileSystem } from '@/managers/FileSystem'
 import ContextMenu from '@/components/ui/ContextMenu';
 import {
@@ -9,11 +9,13 @@ import {
     Trash2,
     Folder,
     FileText,
-    Check
+    Check,
+    Scissors,
+    Clipboard
 } from 'lucide-react';
 import Thumbnail from './Thumbnail';
 
-const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1' }) => {
+const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1', isActive = false }) => {
     // Existing states
     const [isDragSelecting, setIsDragSelecting] = useState(false);
     const [selectionBox, setSelectionBox] = useState(null);
@@ -22,7 +24,6 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     const dragStartPos = React.useRef(null);
 
     // New states from instruction
-    const [lastSelectedIndex, setLastSelectedIndex] = useState(null);
     const gridItemSizeRef = React.useRef(200); // Zoom state ref for performance
 
     // --- Zoom Logic ---
@@ -35,7 +36,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         container.style.setProperty('--grid-item-size', `${gridItemSizeRef.current}px`);
 
         const wheelHandler = (e) => {
-            if (e.ctrlKey || e.metaKey) {
+            if (e.ctrlKey) {
                 e.preventDefault();
                 const delta = e.deltaY * -0.5; // Sensitivity
 
@@ -56,41 +57,10 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         };
     }, []); // Empty dependency array means this runs once on mount
 
-    React.useEffect(() => {
-        const handleKeyDown = async (e) => {
-            // Copy
-            if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-                if (selectedIndices.size === 0) return;
-                const paths = [];
-                selectedIndices.forEach(idx => {
-                    if (images[idx]) paths.push(images[idx].path);
-                });
-                if (paths.length > 0) {
-                    await FileSystem.copyToClipboard(paths);
-                    // Maybe show toast? "Copied to clipboard"
-                }
-            }
+    // Keyboard shortcuts moved to App.jsx for centralized management
+    // Removed local useEffect for Ctrl+X/C/V
 
-            // Paste
-            if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-                if (!currentFolder) return;
-
-                try {
-                    const text = await FileSystem.readClipboard();
-                    const paths = text.split(/[\r\n]+/).filter(p => p.trim());
-                    if (paths.length > 0) {
-                        await FileSystem.copyItems(paths, currentFolder);
-                    }
-                } catch (err) {
-                    console.error("Paste failed", err);
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedIndices, images, currentFolder]);
-
+    // --- Native Drag (Output) ---
     // --- Native Drag (Output) ---
     const handleDragStart = (e, index) => {
         let paths = [];
@@ -110,6 +80,37 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         }
     };
 
+    // --- Drop Handling (Input) ---
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const handleDrop = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!currentFolder) return;
+
+        let files = [];
+        // Support Native File Drops
+        if (e.dataTransfer.files.length > 0) {
+            files = Array.from(e.dataTransfer.files)
+                .map(f => window.electron.getFilePath(f))
+                .filter(p => p);
+        }
+
+        if (files.length > 0) {
+            // Ctrl -> Copy, Default -> Move
+            if (e.ctrlKey) {
+                await FileSystem.copyItems(files, currentFolder);
+            } else {
+                await FileSystem.moveItems(files, currentFolder);
+            }
+        }
+    };
+
     const handleContextMenu = (e, filePath) => {
         e.preventDefault();
         e.stopPropagation();
@@ -125,7 +126,36 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         const targetPath = contextMenu.filePath;
         setContextMenu(null);
 
-        if (action === 'copy') {
+        if (action === 'cut') {
+            let paths = [targetPath];
+            if (contextMenu.selected && selectedIndices.size > 1) {
+                paths = [];
+                selectedIndices.forEach(idx => {
+                    if (images[idx]) paths.push(images[idx].path);
+                });
+            }
+            await FileSystem.cutToClipboard(paths);
+        } else if (action === 'paste') {
+            const internalState = FileSystem._clipboardState;
+            let sources = [];
+            let isCut = false;
+
+            if (internalState && internalState.paths && internalState.paths.length > 0) {
+                sources = internalState.paths;
+                isCut = internalState.action === 'cut';
+            } else {
+                sources = await FileSystem.readClipboard();
+            }
+
+            if (sources.length > 0) {
+                if (isCut) {
+                    await FileSystem.moveItems(sources, currentFolder);
+                    FileSystem._clipboardState = { action: 'copy', paths: [] };
+                } else {
+                    await FileSystem.copyItems(sources, currentFolder);
+                }
+            }
+        } else if (action === 'copy') {
             // If target is in selection, copy all selection. Else copy target only.
             let paths = [targetPath];
             if (contextMenu.selected && selectedIndices.size > 1) {
@@ -134,7 +164,6 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     if (images[idx]) paths.push(images[idx].path);
                 });
             }
-            await FileSystem.copyToClipboard(paths);
             await FileSystem.copyToClipboard(paths);
         } else if (action === 'move_to' || action === 'copy_to') {
             // 1. Determine items
@@ -157,17 +186,6 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 await FileSystem.copyItems(paths, destPath);
             }
         } else if (action === 'delete') {
-            // Re-route to standard delete logic if possible, or just call directly.
-            // App.jsx handles delete via its own Context listeners usually for Window menu?
-            // But here is a custom UI Context Menu.
-            // Let's call FileSystem.deleteFile directly, but we need to update State.
-            // Actually, we rely on App's file watcher or logic.
-            // BUT, App Logic for Delete Key relies on `selectedIndices`.
-            // Let's just emulate keyboard delete? Or calling a prop? `onDelete`?
-            // To be safe, let's just trigger standard delete command if exposed, 
-            // OR just delete and let FileWatcher handle it.
-
-            // If we delete multiple?
             let paths = [targetPath];
             if (contextMenu.selected && selectedIndices.size > 1) {
                 paths = [];
@@ -315,6 +333,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             ref={containerRef}
             className="flex-1 bg-neutral-900 p-4 overflow-y-auto relative select-none"
             onMouseDown={handleMouseDown}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
         >
             {/* Selection Box */}
             {isDragSelecting && (
@@ -355,9 +375,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                     src={img.url}
                                     path={img.path}
                                     alt={img.name}
-                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                    draggable="false" // Let parent handle drag via container events or native?
-                                // Actually, keep generic
+                                    className="transition-transform duration-300 group-hover:scale-105"
+                                    draggable="false"
                                 />
                             </div>
                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
@@ -381,7 +400,10 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     y={contextMenu.y}
                     onClose={() => setContextMenu(null)}
                     options={[
+                        { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut') },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy') },
+                        { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste') },
+                        { type: 'divider' },
                         { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); } },
                         { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') },
                         { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to') },
