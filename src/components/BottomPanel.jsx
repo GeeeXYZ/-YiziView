@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { ConfigManager } from '../managers/ConfigManager';
 import { FileSystem } from '../managers/FileSystem';
-import { X, FileText, Copy } from 'lucide-react';
+import { X, FileText, Copy, Tag } from 'lucide-react';
 
-const BottomPanel = ({ selectedIndices, images, onTagsChange }) => {
+const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio }) => {
     const [commonTags, setCommonTags] = useState([]);
     const [loadingTags, setLoadingTags] = useState(false);
 
@@ -243,10 +244,11 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange }) => {
         if (onTagsChange) onTagsChange();
     };
 
-    if (!selectedIndices || selectedIndices.size === 0) return null;
+    // if (!selectedIndices || selectedIndices.size === 0) return null; // Removed to show panel always for ratio switcher
+    const hasSelection = selectedIndices && selectedIndices.size > 0;
 
     return (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-50 w-full pointer-events-none">
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-[100] w-full pointer-events-none">
 
             {/* Prompts Panel (Expandable) */}
             {(prompts.positive || prompts.negative) && (
@@ -289,33 +291,73 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange }) => {
 
             {/* Main Bar */}
             <div className="pointer-events-auto bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-full px-6 py-2 shadow-2xl flex items-center gap-4 transition-all">
-                <div className="text-gray-400 text-xs font-medium border-r border-neutral-700 pr-4">
-                    {selectedIndices.size} Selected
-                </div>
+                {hasSelection && (
+                    <>
+                        <div className="text-gray-400 text-xs font-medium border-r border-neutral-700 pr-4">
+                            {selectedIndices.size} Selected
+                        </div>
 
-                {loadingTags ? (
-                    <div className="text-gray-500 text-xs">Loading tags...</div>
-                ) : commonTags.length === 0 ? (
-                    <div className="text-gray-500 text-xs italic">No tags</div>
-                ) : (
-                    <div className="flex items-center gap-2">
-                        {commonTags.slice(0, 5).map(tag => (
-                            <div key={tag} className="flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-gray-300 text-xs px-2 py-1 rounded-full transition-colors">
-                                <span>{tag}</span>
-                                <button
-                                    onClick={() => handleRemoveTag(tag)}
-                                    className="text-gray-500 hover:text-red-400 focus:outline-none flex items-center"
-                                    title="Remove Tag"
-                                >
-                                    <X size={10} />
-                                </button>
+                        {loadingTags ? (
+                            <div className="text-gray-500 text-xs">Loading tags...</div>
+                        ) : commonTags.length === 0 ? (
+                            <div className="text-gray-500 text-xs italic">No tags</div>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                {commonTags.slice(0, 5).map(tag => (
+                                    <div key={tag} className="flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-gray-300 text-xs px-2 py-1 rounded-full transition-colors">
+                                        <span>{tag}</span>
+                                        <button
+                                            onClick={() => handleRemoveTag(tag)}
+                                            className="text-gray-500 hover:text-red-400 focus:outline-none flex items-center"
+                                            title="Remove Tag"
+                                        >
+                                            <X size={10} />
+                                        </button>
+                                    </div>
+                                ))}
+                                {commonTags.length > 5 && (
+                                    <span className="text-gray-500 text-xs">+{commonTags.length - 5} more</span>
+                                )}
                             </div>
-                        ))}
-                        {commonTags.length > 5 && (
-                            <span className="text-gray-500 text-xs">+{commonTags.length - 5} more</span>
                         )}
+                    </>
+                )}
+                {!hasSelection && (
+                    <div className="text-gray-500 text-xs italic border-r border-neutral-700 pr-4">
+                        No selection
                     </div>
                 )}
+
+                {/* Right: Aspect Ratio & Tag Info */}
+                <div className="flex items-center gap-4">
+                    {/* Aspect Ratio Switcher */}
+                    <div className="flex items-center bg-neutral-900 rounded-md border border-neutral-700 p-0.5">
+                        {[
+                            { id: '9:16', title: '9:16 Portrait', width: 9, height: 16 },
+                            { id: '3:4', title: '3:4 Portrait', width: 12, height: 16 },
+                            { id: '1:1', title: '1:1 Square', width: 14, height: 14 },
+                            { id: '4:3', title: '4:3 Landscape', width: 16, height: 12 },
+                            { id: '16:9', title: '16:9 Landscape', width: 16, height: 9 },
+                        ].map(ratio => (
+                            <button
+                                key={ratio.id}
+                                onClick={() => setAspectRatio(ratio.id)}
+                                className={`p-1.5 rounded transition-colors flex items-center justify-center w-8 h-8 ${aspectRatio === ratio.id ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                title={ratio.title}
+                            >
+                                <div
+                                    className="border-2 border-current rounded-[2.5px]"
+                                    style={{
+                                        width: `${ratio.width}px`,
+                                        height: `${ratio.height}px`
+                                    }}
+                                />
+                            </button>
+                        ))}
+                    </div>
+
+
+                </div>
 
                 {/* Prompt Toggle Button */}
                 {selectedIndices.size === 1 && (prompts.positive || prompts.negative) && (
@@ -326,12 +368,12 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange }) => {
                             className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${showPrompts ? 'text-blue-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             <FileText size={14} />
-                            {showPrompts ? 'Hide Info' : 'Show Info'}
+                            {showPrompts ? 'Hide Prompt' : 'Show Prompt'}
                         </button>
                     </>
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 

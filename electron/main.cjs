@@ -3,6 +3,13 @@ const path = require('path');
 const { join } = require('path');
 const fs = require('fs/promises');
 const chokidar = require('chokidar');
+const crypto = require('crypto');
+let sharp;
+try {
+  sharp = require('sharp');
+} catch (e) {
+  console.error('Failed to load sharp:', e);
+}
 
 let watcher = null;
 
@@ -136,10 +143,39 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
 
 ipcMain.handle('trash-file', async (event, filePath) => {
   try {
-    await shell.trashItem(filePath);
+    // Normalize path to handle mixed slashes or relative paths
+    const p = path.normalize(filePath);
+    await shell.trashItem(p);
+
+    // Cleanup Metadata (Tags)
+    try {
+      const data = await fs.readFile(fileTagsPath, 'utf-8');
+      const fileTags = JSON.parse(data);
+      if (fileTags[filePath] || fileTags[p]) {
+        delete fileTags[filePath]; // Try both original and normalized
+        delete fileTags[p];
+        await fs.writeFile(fileTagsPath, JSON.stringify(fileTags, null, 2));
+      }
+    } catch (e) {
+      // Ignore tag cleanup errors
+      console.error('Error cleaning up tags:', e);
+    }
+
+    // Cleanup Thumbnail
+    try {
+      const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+      const hash = crypto.createHash('md5').update(filePath).digest('hex');
+      const cachePath = path.join(cacheDir, `${hash}.jpg`);
+      await fs.unlink(cachePath);
+    } catch (e) {
+      // Ignore thumbnail cleanup errors (might not exist)
+    }
+
     return true;
   } catch (error) {
-    console.error('Error trashing file:', error);
+    console.error(`Error trashing file (${filePath}):`, error);
+    // If file doesn't exist, loop through checking?
+    // Actually, sometimes 'Failed to parse path' is due to invalid chars.
     return false;
   }
 });
@@ -412,6 +448,8 @@ const fileTagsPath = path.join(app.getPath('userData'), 'file_tags.json');
 
 ipcMain.handle('add-files-to-tag', async (event, { files, tagName }) => {
   try {
+    if (!files || !Array.isArray(files)) return false;
+
     let fileTags = {};
     try {
       const data = await fs.readFile(fileTagsPath, 'utf-8');
@@ -420,6 +458,7 @@ ipcMain.handle('add-files-to-tag', async (event, { files, tagName }) => {
 
     let changed = false;
     for (const filePath of files) {
+      if (!filePath) continue; // Skip empty/undefined
       if (!fileTags[filePath]) fileTags[filePath] = [];
       if (!fileTags[filePath].includes(tagName)) {
         fileTags[filePath].push(tagName);
@@ -464,7 +503,7 @@ ipcMain.handle('remove-files-from-tag', async (event, { files, tagName }) => {
   }
 });
 
-ipcMain.handle('get-files-by-tag', async (event, tagName) => {
+ipcMain.handle('get-files-by-tag', async (event, { tagNames, mode }) => {
   try {
     let fileTags = {};
     try {
@@ -472,9 +511,28 @@ ipcMain.handle('get-files-by-tag', async (event, tagName) => {
       fileTags = JSON.parse(data);
     } catch (e) { return []; }
 
+    // Normalize to array
+    const tagsToFind = Array.isArray(tagNames) ? tagNames : [tagNames];
+    if (tagsToFind.length === 0) return [];
+
+    // Default mode = union
+    const filterMode = mode || 'union';
+
     const matchingFiles = [];
     for (const [filePath, tags] of Object.entries(fileTags)) {
-      if (tags.includes(tagName)) {
+      // Guard against bad data
+      if (!filePath || filePath === 'undefined' || filePath === 'null') continue;
+
+      let match = false;
+      if (filterMode === 'intersection') {
+        // AND Logic: File must have ALL tags
+        match = tagsToFind.every(t => tags.includes(t));
+      } else {
+        // OR Logic: File has AT LEAST ONE tag
+        match = tags.some(t => tagsToFind.includes(t));
+      }
+
+      if (match) {
         const name = path.basename(filePath);
         matchingFiles.push({
           name,
@@ -666,5 +724,41 @@ ipcMain.handle('read-image-metadata', async (event, filePath) => {
   } catch (error) {
     console.error('Error reading metadata:', error);
     return {};
+  }
+});
+
+ipcMain.handle('get-thumbnail', async (event, filePath) => {
+  if (!sharp) return `media://local/${filePath.replace(/\\/g, '/')}`; // Fallback if sharp missing
+
+  try {
+    // Create cache dir if needed
+    const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+    try {
+      await fs.access(cacheDir);
+    } catch {
+      await fs.mkdir(cacheDir, { recursive: true });
+    }
+
+    // Hash file path for cache key
+    const hash = crypto.createHash('md5').update(filePath).digest('hex');
+    const cachePath = path.join(cacheDir, `${hash}.jpg`);
+
+    // Check if exists
+    try {
+      await fs.access(cachePath);
+      return `media://local/${cachePath.replace(/\\/g, '/')}`;
+    } catch {
+      // Generate
+      await sharp(filePath)
+        .resize(300, 300, { fit: 'cover' }) // Reasonable thumbnail size
+        .jpeg({ quality: 80 })
+        .toFile(cachePath);
+
+      return `media://local/${cachePath.replace(/\\/g, '/')}`;
+    }
+  } catch (error) {
+    console.error('Thumbnail generation error:', error);
+    // Fallback to original
+    return `media://local/${filePath.replace(/\\/g, '/')}`;
   }
 });

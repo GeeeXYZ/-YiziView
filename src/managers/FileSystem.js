@@ -152,8 +152,8 @@ export const FileSystem = {
         return await window.electron.removeFilesFromTag(files, tagName);
     },
 
-    getFilesByTag: async (tagName) => {
-        return await window.electron.getFilesByTag(tagName);
+    getFilesByTag: async (tagNames, mode = 'union') => {
+        return await window.electron.getFilesByTag({ tagNames, mode });
     },
 
     getTagsForFiles: async (filePaths) => {
@@ -162,5 +162,9 @@ export const FileSystem = {
 
     readImageMetadata: async (filePath) => {
         return await window.electron.readImageMetadata(filePath);
+    },
+
+    getThumbnail: async (filePath) => {
+        return await window.electron.getThumbnail(filePath);
     }
 };

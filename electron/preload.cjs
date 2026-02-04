@@ -48,7 +48,8 @@ contextBridge.exposeInMainWorld('electron', {
     deleteTag: (tagName) => ipcRenderer.invoke('delete-tag', tagName),
     addFilesToTag: (files, tagName) => ipcRenderer.invoke('add-files-to-tag', { files, tagName }),
     removeFilesFromTag: (files, tagName) => ipcRenderer.invoke('remove-files-from-tag', { files, tagName }),
-    getFilesByTag: (tagName) => ipcRenderer.invoke('get-files-by-tag', tagName),
+    getFilesByTag: (args) => ipcRenderer.invoke('get-files-by-tag', args),
     getTagsForFiles: (filePaths) => ipcRenderer.invoke('get-tags-for-files', filePaths),
     readImageMetadata: (filePath) => ipcRenderer.invoke('read-image-metadata', filePath),
+    getThumbnail: (filePath) => ipcRenderer.invoke('get-thumbnail', filePath),
 });

@@ -12,7 +12,7 @@ import {
     Copy
 } from 'lucide-react';
 
-const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null }) => {
+const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, onConfirmDelete }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [subfolders, setSubfolders] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -83,12 +83,22 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         } else if (action === 'rename') {
             setModalConfig({ type: 'rename', title: 'Rename Folder', initialValue: name });
         } else if (action === 'delete') {
-            if (confirm(`Are you sure you want to delete "${name}"? This will move it to trash.`)) {
-                FileSystem.deleteFile(path).then(success => {
-                    if (success) {
-                        // Deleted successfully
-                    }
+            const performDelete = async () => {
+                const success = await FileSystem.deleteFile(path);
+                if (success && onRefresh) onRefresh();
+            };
+
+            if (onConfirmDelete) {
+                onConfirmDelete({
+                    title: 'Delete Folder',
+                    message: `Are you sure you want to delete "${name}"? This will move it to trash.`,
+                    onConfirm: performDelete
                 });
+            } else {
+                // Fallback to native confirm
+                if (confirm(`Are you sure you want to delete "${name}"? This will move it to trash.`)) {
+                    performDelete();
+                }
             }
         }
     };
@@ -108,7 +118,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             const success = await FileSystem.renameItem(path, val);
             if (success) {
                 // Rename successful
-                // Ideally trigger a parent refresh here
+                if (onRefresh) onRefresh();
             }
         }
         setModalConfig(null);
@@ -224,6 +234,8 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                                 level={level + 1}
                                 currentPath={currentPath}
                                 initialHasChildren={folder.hasChildren}
+                                onRefresh={refreshSubfolders}
+                                onConfirmDelete={onConfirmDelete}
                             />
                         ))
                     )}

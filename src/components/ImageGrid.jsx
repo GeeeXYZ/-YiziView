@@ -8,10 +8,12 @@ import {
     Truck,
     Trash2,
     Folder,
-    FileText
+    FileText,
+    Check
 } from 'lucide-react';
+import Thumbnail from './Thumbnail';
 
-const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder }) => {
+const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1' }) => {
     // Existing states
     const [isDragSelecting, setIsDragSelecting] = useState(false);
     const [selectionBox, setSelectionBox] = useState(null);
@@ -188,6 +190,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         if (e.button !== 0) return;
         if (e.target.closest('.image-card')) return;
 
+        e.stopPropagation(); // Prevent App from handling background click (which clears selection)
+
         setIsDragSelecting(true);
         const rect = containerRef.current.getBoundingClientRect();
         const startX = e.clientX - rect.left + containerRef.current.scrollLeft;
@@ -218,19 +222,10 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         // Finalize Selection
         // Calculate collision with all children
         const box = getNormalizedBox(selectionBox);
-        const newSelectedIndices = new Set(e.ctrlKey ? selectedIndices : []); // Keep existing if Ctrl held? Usually drag select replaces unless ctrl.
-        // Standard Windows behavior: Drag replaces unless Ctrl/Shift.
-        // Let's implement: Replace unless Ctrl.
+        const newSelectedIndices = new Set(e.ctrlKey ? selectedIndices : []); // Keep existing if Ctrl held
 
-        const gridChildren = containerRef.current.children[0].children; // Access the grid-cols div children
-        // Note: The structure below has a wrapper div for grid. 
-        // Let's adjust refs.
-
-        // Actually, let's look at render structure properly.
-        // We have <div className="flex-1 ..."> (containerRef) -> <div className="grid ..."> -> items.
-
-        // We need to iterate items. 
-        // Better: Query selector.
+        // Use robust querySelector instead of children navigation
+        // const gridChildren = containerRef.current.children[0].children; // Unsafe, Removed
         const items = containerRef.current.querySelectorAll('.image-card');
 
         items.forEach((item, index) => {
@@ -345,24 +340,41 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                             onClick={(e) => onImageClick(i, e)}
                             onDoubleClick={() => onImageDoubleClick(i)}
                             onContextMenu={(e) => handleContextMenu(e, img.path)}
-                            draggable
+                            draggable="true"
                             onDragStart={(e) => handleDragStart(e, i)}
-                            className={`aspect-square bg-neutral-800 rounded-lg overflow-hidden group relative border-2 transition-all cursor-pointer image-card ${selectedIndices.has(i) ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-transparent hover:border-blue-500'
-                                }`}
+                            className={`
+                                relative group cursor-pointer bg-neutral-800 rounded-lg overflow-hidden border-2 transition-all duration-200 image-card
+                                ${selectedIndices.has(i) ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' : 'border-transparent hover:border-neutral-600'}
+                            `}
+                            style={{
+                                aspectRatio: aspectRatio.replace(':', '/')
+                            }}
                         >
-                            <img
-                                src={img.url}
-                                alt={img.name}
-                                className="w-full h-full object-cover pointer-events-none z-10"
-                                loading="lazy"
-                            />
+                            <div className="w-full h-full bg-neutral-900 flex items-center justify-center">
+                                <Thumbnail
+                                    src={img.url}
+                                    path={img.path}
+                                    alt={img.name}
+                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                    draggable="false" // Let parent handle drag via container events or native?
+                                // Actually, keep generic
+                                />
+                            </div>
                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                 {img.name}
                             </div>
+
+                            {/* Selection Check Circle */}
+                            {selectedIndices.has(i) && (
+                                <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-0.5 shadow-sm z-20">
+                                    <Check size={12} className="text-white" strokeWidth={3} />
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
             )}
+
             {contextMenu && (
                 <ContextMenu
                     x={contextMenu.x}
@@ -371,10 +383,9 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     options={[
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy') },
                         { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); } },
-                        { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') }, // Same icon for now?
+                        { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') },
                         { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to') },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true },
-                        // Divider?
                         { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal') }
                     ]}
                 />

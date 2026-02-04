@@ -4,6 +4,7 @@ import ImageGrid from './components/ImageGrid'
 import ImageViewer from './components/ImageViewer'
 import BottomPanel from './components/BottomPanel'
 import { FileSystem } from '@/managers/FileSystem'
+import ConfirmModal from './components/ui/ConfirmModal'
 
 function App() {
   const [currentFolder, setCurrentFolder] = useState(null)
@@ -12,6 +13,10 @@ function App() {
   const [selectedIndices, setSelectedIndices] = useState(new Set())
   const [lastSelectedIndex, setLastSelectedIndex] = useState(null)
   const [viewingIndex, setViewingIndex] = useState(null)
+
+  // UI State
+  const [aspectRatio, setAspectRatio] = useState('1:1'); // '1:1', '16:9', '9:16', '4:3', '3:4'
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, onCancel, confirmKind }
 
   // Handle Context Menu Commands (e.g., Delete from Right Click)
   useEffect(() => {
@@ -86,6 +91,35 @@ function App() {
 
         if (pathsToDelete.length === 0) return;
 
+
+        // Confirm Modal Logic
+        setConfirmModal({
+          title: 'Delete Items',
+          message: `Are you sure you want to delete ${pathsToDelete.length} item(s)? This action cannot be undone.`,
+          confirmText: 'Delete',
+          confirmKind: 'danger',
+          onConfirm: async () => {
+            setConfirmModal(null); // Close modal
+
+            let allSuccess = true;
+            for (const path of pathsToDelete) {
+              const success = await FileSystem.deleteFile(path);
+              if (!success) allSuccess = false;
+            }
+
+            const deletedPaths = new Set(pathsToDelete);
+            const newImages = images.filter(img => !deletedPaths.has(img.path));
+            setImages(newImages);
+            setSelectedIndices(new Set());
+            setLastSelectedIndex(null);
+          },
+          onCancel: () => setConfirmModal(null)
+        });
+
+        // Return here, logic continues in onConfirm
+        return;
+
+        /* Original logic moved inside modal
         let allSuccess = true;
         for (const path of pathsToDelete) {
           const success = await FileSystem.deleteFile(path);
@@ -103,6 +137,16 @@ function App() {
         setImages(newImages);
         setSelectedIndices(new Set());
         setLastSelectedIndex(null);
+        */
+      }
+
+
+      // Select All (Ctrl+A)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        const allIndices = new Set(images.map((_, i) => i));
+        setSelectedIndices(allIndices);
+        if (images.length > 0) setLastSelectedIndex(images.length - 1);
       }
     };
 
@@ -167,22 +211,31 @@ function App() {
   }, []); // Empty dependency mainly because we use functional state updates.
 
   // --- Tag View Logic ---
-  const handleTagSelect = async (tagName) => {
+  const handleTagSelect = async (tags, mode = 'union') => {
     setCurrentFolder(null); // Clear folder info
+
+    // Normalize to array just in case
+    const tagList = Array.isArray(tags) ? tags : [tags];
+
+    if (tagList.length === 0) {
+      setImages([]);
+      setCurrentFolder(null);
+      return;
+    }
+
     setLoading(true);
-    // Fetch files for tag
-    const files = await FileSystem.getFilesByTag(tagName);
+    // Fetch files for tags with mode
+    const files = await FileSystem.getFilesByTag(tagList, mode);
     setImages(files);
     setLoading(false);
     setSelectedIndices(new Set());
     setLastSelectedIndex(null);
     setViewingIndex(null);
 
-    // We can store "currentTag" state if we want to show it in titlebar
-    // For now, let's just reuse currentFolder state variable for title text or add a new one.
-    // Hack: Set currentFolder to `Tag: ${tagName}` string?
-    // Better: Add viewMode state but to keep it simple:
-    setCurrentFolder(`Tag: ${tagName}`); // Display purpose
+    // Display
+    const modeStr = mode === 'intersection' ? 'AND' : 'OR';
+    const displayStr = tagList.length === 1 ? `Tag: ${tagList[0]}` : `Tags (${modeStr}): ${tagList.join(', ')}`;
+    setCurrentFolder(displayStr);
   };
 
   const handleFolderSelect = async (folderPath) => {
@@ -279,22 +332,26 @@ function App() {
               Loading...
             </div>
           ) : (
-            <ImageGrid
-              images={images}
-              selectedIndices={selectedIndices}
-              onImageClick={handleImageClick}
-              onBatchSelect={handleSelectionChange}
-              lastSelectedIndex={lastSelectedIndex}
-              setLastSelectedIndex={setLastSelectedIndex}
-              onImageDoubleClick={handleImageDoubleClick}
-              viewingIndex={viewingIndex}
-            />
+            <div className="flex-1 flex flex-col min-w-0 bg-black/40 overflow-y-auto">
+              <ImageGrid
+                images={images}
+                selectedIndices={selectedIndices}
+                onImageClick={handleImageClick}
+                onImageDoubleClick={handleImageDoubleClick}
+                onBatchSelect={handleSelectionChange}
+                currentFolder={currentFolder}
+                aspectRatio={aspectRatio}
+              />
+
+            </div>
           )}
 
           {/* Bottom Panel (Overlay) */}
           <BottomPanel
             selectedIndices={selectedIndices}
             images={images}
+            aspectRatio={aspectRatio}
+            setAspectRatio={setAspectRatio}
             onTagsChange={() => {
               // If we are currently in a Tag View, we might want to refresh list if item removed from tag?
               // If currentFolder starts with "Tag: ", refresh.
@@ -320,6 +377,17 @@ function App() {
               />
             </div>
           )}
+
+          {/* Confirm Modal */}
+          <ConfirmModal
+            isOpen={!!confirmModal}
+            title={confirmModal?.title}
+            message={confirmModal?.message}
+            onConfirm={confirmModal?.onConfirm}
+            onCancel={confirmModal?.onCancel}
+            confirmText={confirmModal?.confirmText}
+            confirmKind={confirmModal?.confirmKind}
+          />
         </div>
       </div>
     </div>
