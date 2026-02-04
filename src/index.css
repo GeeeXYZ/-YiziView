@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-neutral-900 text-white overflow-hidden m-0 p-0 select-none;
+  /* App-like feel */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-neutral-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-neutral-600 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-neutral-500;
+}
+
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+}
+
+/* Ensure buttons/inputs inside drag region are clickable */
+.titlebar-drag-region button,
+.titlebar-drag-region input {
+  -webkit-app-region: no-drag;
+}
