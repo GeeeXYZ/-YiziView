@@ -125,8 +125,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                 const files = JSON.parse(data);
                 if (Array.isArray(files) && files.length > 0) {
                     await ConfigManager.addFilesToTag(files, tagName);
-                    // Feedback? Access Main Process via FileSystem to maybe trigger toast or just log
-                    console.log(`Added ${files.length} files to tag ${tagName}`);
+                    await ConfigManager.addFilesToTag(files, tagName);
                 }
             }
         } catch (err) {
@@ -176,7 +175,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                                 }}
                                 currentPath={currentPath}
                             />
-                            {/* Simple remove X button on hover, or contextual menu later. Let's do a subtle X */}
                             <button
                                 onClick={(e) => handleRemoveFavorite(e, path)}
                                 className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 p-0.5 rounded transition-opacity"

@@ -51,6 +51,10 @@ export const FileSystem = {
         window.electron.showContextMenu(filePath);
     },
 
+    showInFolder: (filePath) => {
+        window.electron.showItemInFolder(filePath);
+    },
+
     /**
      * Listen for context menu commands.
      * @param {function} callback
@@ -154,5 +158,9 @@ export const FileSystem = {
 
     getTagsForFiles: async (filePaths) => {
         return await window.electron.getTagsForFiles(filePaths);
+    },
+
+    readImageMetadata: async (filePath) => {
+        return await window.electron.readImageMetadata(filePath);
     }
 };

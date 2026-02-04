@@ -1,6 +1,11 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 
 const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
+    const [zoom, setZoom] = useState(1);
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStartRef = useRef({ x: 0, y: 0 });
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'Escape') onClose();
@@ -11,11 +16,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, onNext, onPrev]);
 
-    const [zoom, setZoom] = React.useState(1);
-
-    // Reset zoom when image changes
+    // Reset zoom and position when image changes
     useEffect(() => {
         setZoom(1);
+        setPosition({ x: 0, y: 0 });
     }, [image]);
 
     // Zoom Handler
@@ -24,7 +28,15 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 const delta = e.deltaY * -0.001;
-                setZoom(prev => Math.max(0.1, Math.min(10, prev + delta * 2))); // Faster zoom
+                setZoom(prev => {
+                    // Zoom logic
+                    const newZoom = Math.max(0.1, Math.min(10, prev + delta * 2));
+
+                    // Optional: If zooming out to near 1, we could center?
+                    // For now, let's just let it be. behavior similar to windows photos:
+                    // If zoom goes < 1, it allows it.
+                    return newZoom;
+                });
             }
         };
         // Bind to window to capture all events in modal
@@ -32,6 +44,47 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
         // Cleanup
         return () => window.removeEventListener('wheel', handleWheel);
     }, []);
+
+    // --- Drag Handlers ---
+    const handleMouseDown = (e) => {
+        // Only allow left click drag
+        if (e.button !== 0) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        setIsDragging(true);
+        dragStartRef.current = {
+            x: e.clientX - position.x,
+            y: e.clientY - position.y
+        };
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        setPosition({
+            x: e.clientX - dragStartRef.current.x,
+            y: e.clientY - dragStartRef.current.y
+        });
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    // Global listener for Drag (to handle drag outside image bounds)
+    useEffect(() => {
+        if (isDragging) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isDragging]);
 
     if (!image) return null;
 
@@ -53,15 +106,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
 
             {/* Main Image */}
             <div
-                className="w-full h-full flex items-center justify-center pointer-events-none" // pointer-events-none on wrapper to pass clicks to backdrop? No, image might need interactions. 
-            // Actually if we want to drag later we need interactions. The img has stopPropagation on click anyway.
+                className="w-full h-full flex items-center justify-center pointer-events-none"
             >
                 <img
                     src={image.url}
                     alt={image.name}
-                    style={{ transform: `scale(${zoom})`, transition: 'transform 0.1s ease-out' }}
+                    style={{
+                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
+                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                        cursor: isDragging ? 'grabbing' : 'grab' // Always show grab
+                    }}
                     className="max-h-screen max-w-screen object-contain select-none pointer-events-auto"
                     onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
+                    onMouseDown={handleMouseDown}
                 />
             </div>
 
@@ -74,7 +131,6 @@ const ImageViewer = ({ image, onClose, onNext, onPrev }) => {
             </div>
             <div
                 className="absolute right-0 top-0 bottom-0 w-24 hover:bg-white/5 flex items-center justify-center cursor-pointer group transition-colors z-[55]"
-                // Right nav might overlap close button if not careful, but close button is z-[60] now.
                 onClick={(e) => { e.stopPropagation(); onNext(); }}
             >
                 <div className="opacity-0 group-hover:opacity-100 text-white text-4xl">›</div>

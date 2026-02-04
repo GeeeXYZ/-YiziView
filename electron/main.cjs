@@ -144,6 +144,11 @@ ipcMain.handle('trash-file', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('show-item-in-folder', async (event, filePath) => {
+  shell.showItemInFolder(filePath);
+  return true;
+});
+
 ipcMain.handle('create-folder', async (event, { parentPath, folderName }) => {
   try {
     const fullPath = path.join(parentPath, folderName);
@@ -293,6 +298,16 @@ ipcMain.handle('get-favorites', async () => {
   } catch (error) {
     // If file doesn't exist or error, return empty array
     return [];
+  }
+});
+
+ipcMain.handle('save-favorites', async (event, favorites) => {
+  try {
+    await fs.writeFile(favoritesPath, JSON.stringify(favorites, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving favorites:', error);
+    return false;
   }
 });
 
@@ -584,4 +599,72 @@ ipcMain.handle('read-clipboard', async () => {
   }
 
   return content || '';
+});
+
+ipcMain.handle('read-image-metadata', async (event, filePath) => {
+  try {
+    const buffer = await fs.readFile(filePath);
+
+    // Simple PNG Text Chunk Reader
+    // Signature: 89 50 4E 47 0D 0A 1A 0A
+    if (buffer[0] !== 0x89 || buffer[1] !== 0x50) return {}; // Not PNG
+
+    let offset = 8;
+    const result = { parameters: '', prompt: '', workflow: '' };
+
+    while (offset < buffer.length) {
+      if (offset + 8 > buffer.length) break;
+      const length = buffer.readUInt32BE(offset);
+      const type = buffer.toString('ascii', offset + 4, offset + 8);
+      offset += 8;
+
+      if (type === 'tEXt') {
+        // Keyword null Text
+        let nullByteIndex = -1;
+        for (let i = 0; i < length; i++) {
+          if (buffer[offset + i] === 0) {
+            nullByteIndex = i;
+            break;
+          }
+        }
+        if (nullByteIndex !== -1) {
+          const keyword = buffer.toString('latin1', offset, offset + nullByteIndex);
+          const text = buffer.toString('latin1', offset + nullByteIndex + 1, offset + length);
+          if (keyword === 'parameters') result.parameters = text;
+          if (keyword === 'prompt') result.prompt = text;
+          if (keyword === 'workflow') result.workflow = text;
+        }
+      } else if (type === 'iTXt') {
+        // Keyword(utf8) + 0 + CompFlag + CompMethod + LangTag + 0 + TransKeyword + 0 + Text(utf8)
+        // Simply searching for keyword usually works for these standard keys
+        let idx = 0;
+        let nullsFound = 0;
+        let keywordEnd = -1;
+        // Find first null
+        for (let i = 0; i < length; i++) {
+          if (buffer[offset + i] === 0) {
+            keywordEnd = i;
+            break;
+          }
+        }
+        if (keywordEnd !== -1) {
+          const keyword = buffer.toString('utf8', offset, offset + keywordEnd);
+          // Skip headers to find text
+          // Structure is tricky to parse perfectly without strict spec adherence, 
+          // but usually text is at the end. 
+          // Let's rely on tEXt for ComfyUI which is standard. 
+          // Only some tools use iTXt.
+          // If we really need iTXt, we implement heavier parsing. 
+          // For now, most Comfy/A1111 use tEXt.
+        }
+      }
+
+      offset += length + 4; // +4 for CRC
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error reading metadata:', error);
+    return {};
+  }
 });

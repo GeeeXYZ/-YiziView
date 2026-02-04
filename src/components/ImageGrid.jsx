@@ -5,17 +5,17 @@ import ContextMenu from '@/components/ui/ContextMenu';
 import {
     Image as ImageIcon,
     Copy,
-    ExternalLink,
     Truck,
     Trash2,
-    Folder
+    Folder,
+    FileText
 } from 'lucide-react';
 
 const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder }) => {
     // Existing states
-    const [isDragSelecting, setIsDragSelecting] = useState(false); // Changed from React.useState
-    const [selectionBox, setSelectionBox] = useState(null); // Changed from React.useState
-    const [contextMenu, setContextMenu] = useState(null); // Changed from React.useState
+    const [isDragSelecting, setIsDragSelecting] = useState(false);
+    const [selectionBox, setSelectionBox] = useState(null);
+    const [contextMenu, setContextMenu] = useState(null);
     const containerRef = React.useRef(null);
     const dragStartPos = React.useRef(null);
 
@@ -71,29 +71,13 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
 
             // Paste
             if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-                console.log('Paste detected');
-                // Check if we have focus on the grid or app?
-                // Simple app-wide paste if nothing else handles it.
-                // We need target folder. `currentFolder`.
-                if (!currentFolder) {
-                    console.warn('No current folder to paste into');
-                    return;
-                }
+                if (!currentFolder) return;
 
                 try {
                     const text = await FileSystem.readClipboard();
-                    console.log('Clipboard content (raw):', text);
-                    // Parse text as paths (newline)
                     const paths = text.split(/[\r\n]+/).filter(p => p.trim());
-                    console.log('Parsed paths:', paths);
                     if (paths.length > 0) {
-                        // Perform copy operation
-                        // We are pasting INTO currentFolder.
                         await FileSystem.copyItems(paths, currentFolder);
-                        console.log('Paste operation copy initiated');
-                        // Feedback? The file watcher will likely pick up the new files automatically.
-                    } else {
-                        console.warn('No paths found in clipboard');
                     }
                 } catch (err) {
                     console.error("Paste failed", err);
@@ -107,18 +91,6 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
 
     // --- Native Drag (Output) ---
     const handleDragStart = (e, index) => {
-        // e.preventDefault(); // Do NOT prevent default here, standard dnd requires default behavior usually, or setting data properly.
-        // Actually for custom drag data + native effect, we generally let it propagate but set data.
-        // However, if we want "Electron Native File Drag", we need IPC.
-        // But IPC `startDrag` usually blocks or takes over, causing issues with internal drop.
-        // Solution: Standard HTML5 Drag for internal, and if dropped outside, we can't easily do it UNLESS we use "DownloadURL" or "File" data types which Browsers support. 
-        // Electron WebContent `startDrag` is nice but tricky mixed.
-        // Let's try: Set standard data. If user drags out, it might not work as file copy without `startDrag`.
-        // BUT user asked for "Batch Tagging" (Internal). So prioritized Internal Drag.
-
-        // Logic: If we drag an item that is part of selection, we drag ALL selected items.
-        // If we drag an item NOT in selection, we drag only that item.
-
         let paths = [];
         if (selectedIndices.has(index)) {
             // Dragging a selected item -> Drag all selected
@@ -131,30 +103,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         }
 
         if (paths.length > 0) {
-            // Set data for internal drop (Sidebar)
-            e.dataTransfer.setData('yizi/files', JSON.stringify(paths));
-            e.dataTransfer.effectAllowed = 'copy';
-
-            // Optional: Also try to set File/Text for external if needed, but `startDrag` is more robust for OS.
-            // For now, let's just stick to internal for this feature.
-            // If we want external support simultaneously, we might need a workaround or check drop target.
-            // (Previously we called FileSystem.startDrag(paths), which calls proper Electron drag. 
-            // If we remove it, we break drag-to-desktop. If we keep it, it might eat the event.)
-            // Let's TRY to keep both? 
-            // `FileSystem.startDrag(paths)` initiates drag from Main process.
-            // Usually we call it on `ondragstart`.
-
-            // EXPERIMENT: Call startDrag. 
-            // FileSystem.startDrag(paths); 
-            // Issue: startDrag often clears dataTransfer or creates a new drag session.
-            // To support internal drop, we rely on `yizi/files`.
-            // If we must choose, for this task "Tagging" is the goal.
-            // We'll comment out startDrag for now to ensure internal works perfect, or try to put it after?
-            // Actually, let's leave startDrag OFF for this specific interaction to guarantee tagging works, 
-            // unless user complains about dragging to desktop.
-            // User did not explicitly ask to keep Drag-to-Desktop, but "Tagging".
-
-            // Re-enabling startDrag might be needed later. For now, pure HTML5 drag for tags.
+            e.preventDefault();
+            FileSystem.startDrag(paths);
         }
     };
 
@@ -183,7 +133,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 });
             }
             await FileSystem.copyToClipboard(paths);
-            console.log('Copied to clipboard:', paths);
+            await FileSystem.copyToClipboard(paths);
         } else if (action === 'move_to' || action === 'copy_to') {
             // 1. Determine items
             let paths = [targetPath];
@@ -228,7 +178,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 await FileSystem.deleteFile(p);
             }
         } else if (action === 'reveal') {
-            FileSystem.showContextMenu(targetPath); // Using native "Show in Explorer" from backend context menu helper
+            FileSystem.showInFolder(targetPath);
         }
     };
 
@@ -420,6 +370,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     onClose={() => setContextMenu(null)}
                     options={[
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy') },
+                        { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); } },
                         { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') }, // Same icon for now?
                         { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to') },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true },

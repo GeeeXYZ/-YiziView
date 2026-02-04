@@ -8,7 +8,8 @@ import {
     FolderOpen,
     Plus,
     Edit2,
-    Trash2
+    Trash2,
+    Copy
 } from 'lucide-react';
 
 const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null }) => {
@@ -85,20 +86,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             if (confirm(`Are you sure you want to delete "${name}"? This will move it to trash.`)) {
                 FileSystem.deleteFile(path).then(success => {
                     if (success) {
-                        // Reload parent? We can't trigger parent reload easily here.
-                        // Maybe pass a onRefreshParent prop? 
-                        // For now, if deleted, it might just disappear effectively if we unmount or if parent re-renders.
-                        // Ideally, we need onRefreshParent callback.
-                        // But since we don't have it, we just hope the user navigates or refreshes.
-                        // Actually, we can use the file watcher! It will auto-update if parent is open.
-                        // Wait, FolderTree relies on manual `subfolders` state. The file watcher in App.jsx only updates Grid.
-                        // We need file watcher for Sidebar too?
-
-                        // Hack for MVP: Hide this component (state)
-                        // Better: Rely on File Watcher if we implement it for Tree.
-                        // For now, just let it stay until clicked? No.
-                        // Since we lack parent refresh callback, let's keep it simple.
-                        // The user will see it gone if they collapse/expand parent.
+                        // Deleted successfully
                     }
                 });
             }
@@ -119,14 +107,8 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         } else if (modalConfig.type === 'rename') {
             const success = await FileSystem.renameItem(path, val);
             if (success) {
-                // We physically renamed it. The `path` prop is now stale.
-                // This component needs to accept that it's dead or changing.
-                // If we had a parent refresh, it would be clean.
-                // For now, simple reload of page or similar is needed for full consistency without Redux/Global State.
-                // Actually, let's just trigger a reload of window? No, that's heavy.
-                // Let's rely on File Watcher if implemented, OR just warn user.
-                // "Rename successful. Please refresh folder tree." 
-                // Or we could have passed a `refreshParent` prop down the recursive tree.
+                // Rename successful
+                // Ideally trigger a parent refresh here
             }
         }
         setModalConfig(null);
@@ -159,8 +141,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         e.stopPropagation();
         setIsDragOver(false);
 
-        console.log('Drop event on folder:', path);
-        console.log('DataTransfer types:', e.dataTransfer.types);
+        setIsDragOver(false);
 
         let files = [];
 
@@ -181,13 +162,9 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 .filter(p => p);
         }
 
-        console.log('Dropped files:', files);
-
         if (files.length > 0) {
             const successCount = await FileSystem.moveItems(files, path);
             if (successCount > 0) {
-                // Provide feedback?
-                console.log(`Moved ${successCount} items to ${path}`);
                 // Refresh if expanded
                 if (isExpanded) refreshSubfolders();
             }
@@ -261,6 +238,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                     onClose={() => setContextMenu(null)}
                     options={[
                         { label: 'New Subfolder', icon: <Plus size={14} />, onClick: () => handleMenuOption('create') },
+                        { label: 'Copy Folder Path', icon: <Copy size={14} />, onClick: () => { navigator.clipboard.writeText(path); setContextMenu(null); } },
                         { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleMenuOption('rename') },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleMenuOption('delete'), danger: true },
                     ]}

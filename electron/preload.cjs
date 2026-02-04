@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Context Menu
     showContextMenu: (path) => ipcRenderer.send('show-context-menu', path),
+    showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
     onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', callback),
 
     // Folder Tree / Favorites
@@ -49,4 +50,5 @@ contextBridge.exposeInMainWorld('electron', {
     removeFilesFromTag: (files, tagName) => ipcRenderer.invoke('remove-files-from-tag', { files, tagName }),
     getFilesByTag: (tagName) => ipcRenderer.invoke('get-files-by-tag', tagName),
     getTagsForFiles: (filePaths) => ipcRenderer.invoke('get-tags-for-files', filePaths),
+    readImageMetadata: (filePath) => ipcRenderer.invoke('read-image-metadata', filePath),
 });
