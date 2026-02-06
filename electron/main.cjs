@@ -1090,56 +1090,78 @@ ipcMain.handle('read-image-metadata', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('get-thumbnail', async (event, filePath) => {
-  // Video bypass: return original path (frontend handles preview)
-  const ext = path.extname(filePath).toLowerCase();
-  if (['.mp4', '.webm', '.mov'].includes(ext)) {
-    return `media://local/${filePath.replace(/\\/g, '/')}`;
-  }
+// --- Optimized Thumbnail System with Queue & Deduping ---
+const thumbnailQueue = [];
+const activeThumbnailRequests = new Map(); // path -> Promise
+const MAX_CONCURRENT_THUMBNAILS = 4; // Adjust based on CPU cores
+let servingThumbnails = 0;
 
-  if (!sharp) return `media://local/${filePath.replace(/\\/g, '/')}`; // Fallback if sharp missing
+async function processThumbnailQueue() {
+  if (servingThumbnails >= MAX_CONCURRENT_THUMBNAILS || thumbnailQueue.length === 0) return;
+
+  servingThumbnails++;
+  const { filePath, size, resolve, reject } = thumbnailQueue.shift();
 
   try {
-    // Create cache dir if needed
-    const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
-    try {
-      await fs.access(cacheDir);
-    } catch {
-      await fs.mkdir(cacheDir, { recursive: true });
-    }
+    const result = await generateThumbnailInternal(filePath, size);
+    resolve(result);
+  } catch (err) {
+    reject(err);
+  } finally {
+    servingThumbnails--;
+    processThumbnailQueue();
+  }
+}
 
-    // Hash file path for cache key
-    const hash = crypto.createHash('md5').update(filePath).digest('hex');
-    const cachePath = path.join(cacheDir, `${hash}.jpg`);
+async function generateThumbnailInternal(filePath, size = 600) {
+  const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+  try { await fs.access(cacheDir); } catch { await fs.mkdir(cacheDir, { recursive: true }); }
 
-    // Check if exists
-    try {
-      await fs.access(cachePath);
+  const hash = crypto.createHash('md5').update(filePath).digest('hex');
+  const cachePath = path.join(cacheDir, `${hash}_${size}.jpg`);
 
-      // Check if cache is stale (source file newer than cache)
-      const sourceStats = await fs.stat(filePath);
-      const cacheStats = await fs.stat(cachePath);
-
-      if (sourceStats.mtime > cacheStats.mtime) {
-        // Stale cache, force regenerate
-        throw new Error('Cache Stale');
-      }
-
-      return `media://local/${cachePath.replace(/\\/g, '/')}`;
-    } catch {
-      // Generate
-      await sharp(filePath)
-        .resize(600, 600, { fit: 'outside', withoutEnlargement: true }) // Ensure both sides are at least 600
-        .jpeg({ quality: 85 })
-        .toFile(cachePath);
-
+  try {
+    await fs.access(cachePath);
+    const [sourceStats, cacheStats] = await Promise.all([fs.stat(filePath), fs.stat(cachePath)]);
+    if (sourceStats.mtime <= cacheStats.mtime) {
       return `media://local/${cachePath.replace(/\\/g, '/')}`;
     }
-  } catch (error) {
-    console.error('Thumbnail generation error:', error);
-    // Fallback to original
+  } catch { }
+
+  // Atomic write to avoid black thumbnails/partial reads
+  const tmpPath = `${cachePath}.tmp`;
+  await sharp(filePath)
+    .resize(size, size, { fit: 'outside', rotate: true, withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toFile(tmpPath);
+  await fs.rename(tmpPath, cachePath);
+
+  return `media://local/${cachePath.replace(/\\/g, '/')}`;
+}
+
+ipcMain.handle('get-thumbnail', async (event, filePath, size = 600) => {
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.mp4', '.webm', '.mov', '.mkv'].includes(ext)) {
     return `media://local/${filePath.replace(/\\/g, '/')}`;
   }
+
+  if (!sharp) return `media://local/${filePath.replace(/\\/g, '/')}`;
+
+  const requestKey = `${filePath}_${size}`;
+  // Deduping: If already processing this file+size, return the existing promise
+  if (activeThumbnailRequests.has(requestKey)) {
+    return activeThumbnailRequests.get(requestKey);
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    thumbnailQueue.push({ filePath, size, resolve, reject });
+    processThumbnailQueue();
+  }).finally(() => {
+    activeThumbnailRequests.delete(requestKey);
+  });
+
+  activeThumbnailRequests.set(requestKey, promise);
+  return promise;
 });
 ipcMain.handle('clear-thumbnail-cache', async () => {
   const cacheDir = path.join(app.getPath('userData'), 'thumbnails');

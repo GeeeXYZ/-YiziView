@@ -174,13 +174,42 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         </div>
                     </div>
 
+                    {/* Performance Settings */}
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Performance</h3>
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Thumbnail Quality (Size)</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Choose target resolution. Lower size saves RAM/VRAM.
+                                    </p>
+                                </div>
+                                <select
+                                    value={localStorage.getItem('settings_thumb_size') || '600'}
+                                    onChange={(e) => {
+                                        localStorage.setItem('settings_thumb_size', e.target.value);
+                                        window.location.reload(); // Reload to apply to all panels
+                                    }}
+                                    className="bg-neutral-700 text-white text-sm rounded-lg border border-neutral-600 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="256">256px (Fastest)</option>
+                                    <option value="400">400px (Light)</option>
+                                    <option value="600">600px (Standard)</option>
+                                    <option value="800">800px (High)</option>
+                                    <option value="1024">1024px (Ultra)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* App Info */}
                     <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">About</h3>
                         <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
                             <div className="text-sm text-gray-400 space-y-1">
                                 <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                <p><span className="text-gray-300 font-medium">Version:</span> 0.2.0</p>
+                                <p><span className="text-gray-300 font-medium">Version:</span> 0.4.0</p>
                                 <p><span className="text-gray-300 font-medium">Description:</span> Multi-panel image viewer with tag management</p>
                             </div>
                         </div>

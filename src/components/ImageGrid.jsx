@@ -328,73 +328,130 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         };
     }, [isDragSelecting, selectionBox]); // Add selectionBox dependency for current pos updates? No, refs or state.
 
+    // --- Virtualization Logic ---
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(0);
+    const [columns, setColumns] = useState(1);
+    const gridGap = 16; // 4 * gap-4 (1rem = 16px)
+
+    useEffect(() => {
+        const updateLayout = () => {
+            if (!containerRef.current) return;
+            const width = containerRef.current.clientWidth - 32; // px-4 * 2
+            const currentItemWidth = gridItemSizeRef.current;
+            const cols = Math.max(1, Math.floor((width + gridGap) / (currentItemWidth + gridGap)));
+            setColumns(cols);
+            setContainerHeight(containerRef.current.clientHeight);
+        };
+
+        const resizeObserver = new ResizeObserver(updateLayout);
+        if (containerRef.current) resizeObserver.observe(containerRef.current);
+        updateLayout();
+
+        // Also update when zoom changes
+        const container = containerRef.current;
+        const observer = new MutationObserver(updateLayout);
+        observer.observe(container, { attributes: true, attributeFilter: ['style'] });
+
+        return () => {
+            resizeObserver.disconnect();
+            observer.disconnect();
+        };
+    }, []);
+
+    const handleScroll = (e) => {
+        setScrollTop(e.target.scrollTop);
+    };
+
+    // Calculate virtual items
+    const itemHeight = Math.floor(gridItemSizeRef.current * (aspectRatio === '1:1' ? 1 : (aspectRatio === '3:4' ? 1.33 : 0.75))) + gridGap;
+    // Note: This matches the aspectRatio calculation in the grid.
+    // For simplicity, let's use a more robust way to get height
+    const ratioValue = aspectRatio.split(':');
+    const hRatio = parseFloat(ratioValue[1]) / parseFloat(ratioValue[0]);
+    const calculatedItemHeight = gridItemSizeRef.current * hRatio + gridGap;
+
+    const totalRows = Math.ceil(images.length / columns);
+    const startIndex = Math.max(0, Math.floor(scrollTop / calculatedItemHeight) * columns);
+    const endIndex = Math.min(images.length, Math.ceil((scrollTop + containerHeight) / calculatedItemHeight) * columns + columns); // Extra row for safety
+
+    const visibleImages = images.slice(startIndex, endIndex);
+    const offsetY = Math.floor(startIndex / columns) * calculatedItemHeight;
+
     return (
         <div
             ref={containerRef}
-            className="flex-1 bg-neutral-900 p-4 overflow-y-auto relative select-none"
+            className="flex-1 bg-neutral-900 overflow-y-auto relative select-none"
             onMouseDown={handleMouseDown}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
+            onScroll={handleScroll}
         >
-            {/* Selection Box */}
-            {isDragSelecting && (
-                <div
-                    className="absolute bg-blue-500/30 border border-blue-400 z-50 pointer-events-none"
-                    style={boxStyle}
-                />
-            )}
+            <div className="p-4 relative" style={{ height: totalRows * calculatedItemHeight }}>
+                {/* Selection Box */}
+                {isDragSelecting && (
+                    <div
+                        className="absolute bg-blue-500/30 border border-blue-400 z-50 pointer-events-none"
+                        style={boxStyle}
+                    />
+                )}
 
-            {images.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                    <ImageIcon size={64} className="mb-4 opacity-20" />
-                    <p>Select a folder to view images</p>
-                </div>
-            ) : (
-                <div
-                    className="grid gap-4 pb-20"
-                    style={{ gridTemplateColumns: `repeat(auto-fill, minmax(var(--grid-item-size, 200px), 1fr))` }}
-                >
-                    {images.map((img, i) => (
-                        <div
-                            key={i}
-                            onClick={(e) => onImageClick(i, e)}
-                            onDoubleClick={() => onImageDoubleClick(i)}
-                            onContextMenu={(e) => handleContextMenu(e, img.path)}
-                            draggable="true"
-                            onDragStart={(e) => handleDragStart(e, i)}
-                            className={`
-                                relative group cursor-pointer bg-neutral-800 rounded-lg overflow-hidden border-2 transition-all duration-200 image-card
-                                ${selectedIndices.has(i) ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' : 'border-transparent hover:border-neutral-600'}
-                            `}
-                            style={{
-                                aspectRatio: aspectRatio.replace(':', '/')
-                            }}
-                        >
-                            <div className="w-full h-full bg-neutral-900 flex items-center justify-center">
-                                <Thumbnail
-                                    src={img.url}
-                                    path={img.path}
-                                    alt={img.name}
-                                    className="transition-transform duration-300 group-hover:scale-105"
-                                    draggable="false"
-                                />
-                            </div>
-                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                                {img.name}
-                            </div>
+                {images.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <ImageIcon size={64} className="mb-4 opacity-20" />
+                        <p>Select a folder to view images</p>
+                    </div>
+                ) : (
+                    <div
+                        className="grid gap-4"
+                        style={{
+                            gridTemplateColumns: `repeat(auto-fill, minmax(var(--grid-item-size, 200px), 1fr))`,
+                            transform: `translateY(${offsetY}px)`
+                        }}
+                    >
+                        {visibleImages.map((img, relativeIndex) => {
+                            const i = startIndex + relativeIndex;
+                            return (
+                                <div
+                                    key={img.path} // Use path as key for better stability
+                                    onClick={(e) => onImageClick(i, e)}
+                                    onDoubleClick={() => onImageDoubleClick(i)}
+                                    onContextMenu={(e) => handleContextMenu(e, img.path)}
+                                    draggable="true"
+                                    onDragStart={(e) => handleDragStart(e, i)}
+                                    className={`
+                                        relative group cursor-pointer bg-neutral-800 rounded-lg overflow-hidden border-2 transition-all duration-200 image-card
+                                        ${selectedIndices.has(i) ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' : 'border-transparent hover:border-neutral-600'}
+                                    `}
+                                    style={{
+                                        aspectRatio: aspectRatio.replace(':', '/')
+                                    }}
+                                >
+                                    <div className="w-full h-full bg-neutral-900 flex items-center justify-center">
+                                        <Thumbnail
+                                            src={img.url}
+                                            path={img.path}
+                                            alt={img.name}
+                                            className="transition-transform duration-300 group-hover:scale-105"
+                                            draggable="false"
+                                        />
+                                    </div>
+                                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                        {img.name}
+                                    </div>
 
-                            {/* Selection Check Circle */}
-                            {selectedIndices.has(i) && (
-                                <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-0.5 shadow-sm z-20">
-                                    <Check size={12} className="text-white" strokeWidth={3} />
+                                    {/* Selection Check Circle */}
+                                    {selectedIndices.has(i) && (
+                                        <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-0.5 shadow-sm z-20">
+                                            <Check size={12} className="text-white" strokeWidth={3} />
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {contextMenu && (
+                            );
+                        })}
+                    </div>
+                )}
+            </div>      {contextMenu && (
                 <ContextMenu
                     x={contextMenu.x}
                     y={contextMenu.y}

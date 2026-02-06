@@ -204,8 +204,8 @@ export const FileSystem = {
         return await window.electron.readImageMetadata(filePath);
     },
 
-    getThumbnail: async (filePath) => {
-        return await window.electron.getThumbnail(filePath);
+    getThumbnail: async (filePath, size) => {
+        return await window.electron.getThumbnail(filePath, size);
     },
 
     startDrag: (paths) => {

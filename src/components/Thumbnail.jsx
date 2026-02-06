@@ -13,12 +13,9 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
     useEffect(() => {
         const observer = new IntersectionObserver(
             ([entry]) => {
-                if (entry.isIntersecting) {
-                    setIsVisible(true);
-                    observer.disconnect();
-                }
+                setIsVisible(entry.isIntersecting);
             },
-            { rootMargin: '200px' } // Preload when close
+            { rootMargin: '400px' } // Preload buffer
         );
 
         if (imgRef.current) {
@@ -29,14 +26,21 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
     }, []);
 
     useEffect(() => {
-        if (!isVisible || !path || isVideo) return; // Skip thumbnail fetch for videos (they use src directly)
+        if (!isVisible) {
+            // Unload to save VRAM when out of view
+            setThumbSrc(null);
+            return;
+        }
+
+        if (!path || isVideo) return;
 
         let active = true;
 
         const load = async () => {
             try {
                 // Request thumbnail from backend
-                const t = await FileSystem.getThumbnail(path);
+                const preferredSize = parseInt(localStorage.getItem('settings_thumb_size')) || 600;
+                const t = await FileSystem.getThumbnail(path, preferredSize);
                 if (active) setThumbSrc(t);
             } catch (e) {
                 // Fallback to original
@@ -98,13 +102,12 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
     return (
         <img
             ref={imgRef}
-            src={isVisible ? (thumbSrc || src) : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
+            src={isVisible && thumbSrc ? thumbSrc : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
             alt={alt}
-            className={`object-cover w-full h-full ${className} ${!thumbSrc && isVisible ? 'opacity-50 blur-sm' : ''}`}
+            className={`object-cover w-full h-full transition-opacity duration-300 ${className} ${!thumbSrc && isVisible ? 'opacity-0' : 'opacity-100'}`}
             style={style}
             draggable={draggable}
             onDragStart={onDragStart}
-            loading="lazy"
         />
     );
 };
