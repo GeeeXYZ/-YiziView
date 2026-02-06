@@ -89,6 +89,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         };
     }, [isDragging]);
 
+    const isVideo = image?.path && /\.(mp4|webm|mov|mkv)$/i.test(image.path);
+
     if (!image) return null;
 
     return (
@@ -107,22 +109,32 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 </svg>
             </button>
 
-            {/* Main Image */}
+            {/* Main Content (Image or Video) */}
             <div
                 className="w-full h-full flex items-center justify-center pointer-events-none"
             >
-                <img
-                    src={image.url}
-                    alt={image.name}
-                    style={{
-                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
-                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                        cursor: isDragging ? 'grabbing' : 'grab' // Always show grab
-                    }}
-                    className="max-h-screen max-w-screen object-contain select-none pointer-events-auto"
-                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
-                    onMouseDown={handleMouseDown}
-                />
+                {isVideo ? (
+                    <video
+                        src={image.url}
+                        controls
+                        autoPlay
+                        className="max-h-screen max-w-screen object-contain pointer-events-auto"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <img
+                        src={image.url}
+                        alt={image.name}
+                        style={{
+                            transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
+                            transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                            cursor: isDragging ? 'grabbing' : 'grab' // Always show grab
+                        }}
+                        className="max-h-screen max-w-screen object-contain select-none pointer-events-auto"
+                        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
+                        onMouseDown={handleMouseDown}
+                    />
+                )}
             </div>
 
             {/* Navigation Areas */}

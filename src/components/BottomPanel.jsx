@@ -70,6 +70,8 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
 
             const metadata = await FileSystem.readImageMetadata(image.path);
 
+            console.log('Metadata loaded:', metadata); // DEBUG
+
             // 1. Try A1111 / Parameters
             if (metadata.parameters) {
                 const text = metadata.parameters;
@@ -94,83 +96,116 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                 }
                 setPrompts({ positive: pos, negative: neg, type: 'a1111' });
             }
-            // 2. Try ComfyUI Prompt (JSON)
-            else if (metadata.prompt) {
-                try {
-                    const sanitizedPrompt = metadata.prompt.replace(/:\s*NaN/g, ': null').replace(/\[\s*NaN\s*\]/g, '[null]').replace(/,\s*NaN\s*\]/g, ', null]').replace(/\[\s*NaN\s*,/g, '[null,');
-                    const json = JSON.parse(sanitizedPrompt);
-                    const samplers = Object.values(json).filter(node =>
-                        node.class_type && (
-                            node.class_type.includes('Sampler') ||
-                            node.class_type.includes('Efficient Loader') ||
-                            node.class_type === 'KSampler' ||
-                            node.class_type === 'KSamplerAdvanced'
-                        )
-                    );
-                    const foundPos = new Set();
-                    const foundNeg = new Set();
-                    const findTextInChain = (nodeId, visited = new Set()) => {
-                        if (!nodeId || visited.has(nodeId)) return [];
-                        visited.add(nodeId);
-                        const node = json[nodeId];
-                        if (!node) return [];
-                        const texts = [];
-                        const textKeys = ['text', 'text_g', 'text_l', 'positive', 'negative', 'string', 'value', 'prompt'];
-                        textKeys.forEach(key => {
-                            if (node.inputs && node.inputs[key]) {
-                                const val = node.inputs[key];
-                                if (typeof val === 'string' && val.trim().length > 1 && !val.startsWith('%')) {
-                                    texts.push(val);
-                                } else if (Array.isArray(val)) {
-                                    if (['text', 'text_g', 'text_l', 'string', 'value'].includes(key)) {
-                                        texts.push(...findTextInChain(val[0], visited));
+            // 2. Try ComfyUI Prompt (Regular or API Format)
+            else if (metadata.prompt || metadata.prompt_parsed) {
+                // If prompt_parsed exists (from our backend helper), use it directly if possible
+                if (metadata.prompt_parsed && !metadata.positive) {
+                    setPrompts({
+                        positive: metadata.prompt_parsed, // It puts everything in positive currently
+                        negative: '',
+                        type: 'comfy'
+                    });
+                    return;
+                }
+
+                // Fallback to existing detailed parser for normal 'prompt'
+                if (metadata.prompt) {
+                    try {
+                        const sanitizedPrompt = metadata.prompt.replace(/:\s*NaN/g, ': null').replace(/\[\s*NaN\s*\]/g, '[null]').replace(/,\s*NaN\s*\]/g, ', null]').replace(/\[\s*NaN\s*,/g, '[null,');
+                        const json = JSON.parse(sanitizedPrompt);
+                        // ... existing parser logic ...
+                        const samplers = Object.values(json).filter(node =>
+                            node.class_type && (
+                                node.class_type.includes('Sampler') ||
+                                node.class_type.includes('Efficient Loader') ||
+                                node.class_type === 'KSampler' ||
+                                node.class_type === 'KSamplerAdvanced'
+                            )
+                        );
+                        // ... (rest of parser logic is fine, just need to ensure we run it)
+                        // COPIED LOGIC FOR CONTEXT:
+                        const foundPos = new Set();
+                        const foundNeg = new Set();
+                        const findTextInChain = (nodeId, visited = new Set()) => {
+                            if (!nodeId || visited.has(nodeId)) return [];
+                            visited.add(nodeId);
+                            const node = json[nodeId];
+                            if (!node) return [];
+                            const texts = [];
+                            const textKeys = ['text', 'text_g', 'text_l', 'positive', 'negative', 'string', 'value', 'prompt'];
+                            textKeys.forEach(key => {
+                                if (node.inputs && node.inputs[key]) {
+                                    const val = node.inputs[key];
+                                    if (typeof val === 'string' && val.trim().length > 1 && !val.startsWith('%')) {
+                                        texts.push(val);
+                                    } else if (Array.isArray(val)) {
+                                        if (['text', 'text_g', 'text_l', 'string', 'value'].includes(key)) {
+                                            texts.push(...findTextInChain(val[0], visited));
+                                        }
                                     }
                                 }
+                            });
+                            if (node.inputs) {
+                                Object.values(node.inputs).forEach(val => {
+                                    if (Array.isArray(val) && val.length === 2) {
+                                        texts.push(...findTextInChain(val[0], visited));
+                                    }
+                                });
+                            }
+                            return texts;
+                        };
+                        samplers.forEach(sampler => {
+                            if (sampler.inputs) {
+                                if (sampler.inputs.positive && Array.isArray(sampler.inputs.positive)) {
+                                    const texts = findTextInChain(sampler.inputs.positive[0]);
+                                    texts.forEach(t => foundPos.add(t));
+                                }
+                                if (sampler.inputs.negative && Array.isArray(sampler.inputs.negative)) {
+                                    const texts = findTextInChain(sampler.inputs.negative[0]);
+                                    texts.forEach(t => foundNeg.add(t));
+                                }
+                                if (sampler.class_type.includes('Efficient Loader')) {
+                                    if (typeof sampler.inputs.positive === 'string') foundPos.add(sampler.inputs.positive);
+                                    if (typeof sampler.inputs.negative === 'string') foundNeg.add(sampler.inputs.negative);
+                                }
                             }
                         });
-                        if (node.inputs) {
-                            Object.values(node.inputs).forEach(val => {
-                                if (Array.isArray(val) && val.length === 2) {
-                                    texts.push(...findTextInChain(val[0], visited));
-                                }
+                        if (foundPos.size === 0 && foundNeg.size === 0) {
+                            // Use prompt_parsed as fallback if detailed parse failed
+                            if (metadata.prompt_parsed) {
+                                foundPos.add(metadata.prompt_parsed);
+                            } else {
+                                Object.values(json).forEach(node => {
+                                    // Also check for 'Text Multiline' explicitly here in frontend
+                                    if (node.class_type === 'Text Multiline' && node.inputs && node.inputs.text) {
+                                        foundPos.add(node.inputs.text);
+                                    }
+                                    if (node.class_type && node.class_type.includes('TextEncode')) {
+                                        if (node.inputs && typeof node.inputs.text === 'string') {
+                                            foundPos.add(node.inputs.text);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        if (foundPos.size > 0 || foundNeg.size > 0) {
+                            setPrompts({
+                                positive: Array.from(foundPos).join('\n\n'),
+                                negative: Array.from(foundNeg).join('\n\n'),
+                                type: 'comfy'
                             });
                         }
-                        return texts;
-                    };
-                    samplers.forEach(sampler => {
-                        if (sampler.inputs) {
-                            if (sampler.inputs.positive && Array.isArray(sampler.inputs.positive)) {
-                                const texts = findTextInChain(sampler.inputs.positive[0]);
-                                texts.forEach(t => foundPos.add(t));
-                            }
-                            if (sampler.inputs.negative && Array.isArray(sampler.inputs.negative)) {
-                                const texts = findTextInChain(sampler.inputs.negative[0]);
-                                texts.forEach(t => foundNeg.add(t));
-                            }
-                            if (sampler.class_type.includes('Efficient Loader')) {
-                                if (typeof sampler.inputs.positive === 'string') foundPos.add(sampler.inputs.positive);
-                                if (typeof sampler.inputs.negative === 'string') foundNeg.add(sampler.inputs.negative);
-                            }
+                    } catch (e) {
+                        // JSON Parse failed, fallback to prompt_parsed
+                        if (metadata.prompt_parsed) {
+                            setPrompts({
+                                positive: metadata.prompt_parsed,
+                                negative: '',
+                                type: 'comfy'
+                            });
                         }
-                    });
-                    if (foundPos.size === 0 && foundNeg.size === 0) {
-                        Object.values(json).forEach(node => {
-                            if (node.class_type && node.class_type.includes('TextEncode')) {
-                                if (node.inputs && typeof node.inputs.text === 'string') {
-                                    foundPos.add(node.inputs.text);
-                                }
-                            }
-                        });
+                        console.error('Failed to parse ComfyUI prompt JSON:', e);
                     }
-                    if (foundPos.size > 0 || foundNeg.size > 0) {
-                        setPrompts({
-                            positive: Array.from(foundPos).join('\n\n'),
-                            negative: Array.from(foundNeg).join('\n\n'),
-                            type: 'comfy'
-                        });
-                    }
-                } catch (e) {
-                    console.error('Failed to parse ComfyUI prompt JSON:', e);
                 }
             }
         } catch (error) {

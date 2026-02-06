@@ -35,6 +35,10 @@ contextBridge.exposeInMainWorld('electron', {
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
     saveFavorites: (favorites) => ipcRenderer.invoke('save-favorites', favorites),
 
+    // Expanded State
+    getExpandedFolders: () => ipcRenderer.invoke('get-expanded-folders'),
+    setFolderExpanded: (path, expanded) => ipcRenderer.invoke('set-folder-expanded', { path, expanded }),
+
     // Session
     getSession: () => ipcRenderer.invoke('get-session'),
     saveSession: (session) => ipcRenderer.invoke('save-session', session),

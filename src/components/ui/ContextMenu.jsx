@@ -27,20 +27,26 @@ const ContextMenu = ({ x, y, options, onClose }) => {
             className="fixed z-50 bg-neutral-800 border border-neutral-700 shadow-xl rounded-lg py-1 text-sm text-gray-200 select-none animate-in fade-in zoom-in-95 duration-100"
             style={style}
         >
-            {options.map((option, index) => (
-                <div
-                    key={index}
-                    className={`px-4 py-2 hover:bg-blue-600 cursor-pointer flex items-center gap-2 ${option.danger ? 'text-red-400 hover:text-white hover:bg-red-600' : ''}`}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        option.onClick();
-                        onClose();
-                    }}
-                >
-                    {option.icon && <span>{option.icon}</span>}
-                    <span>{option.label}</span>
-                </div>
-            ))}
+            {options.map((option, index) => {
+                if (option.type === 'divider') {
+                    return <div key={index} className="h-px bg-neutral-700 my-1 mx-1" />;
+                }
+
+                return (
+                    <div
+                        key={index}
+                        className={`px-4 py-2 hover:bg-blue-600 cursor-pointer flex items-center gap-2 ${option.danger ? 'text-red-400 hover:text-white hover:bg-red-600' : ''}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (option.onClick) option.onClick();
+                            onClose();
+                        }}
+                    >
+                        {option.icon && <span>{option.icon}</span>}
+                        <span>{option.label}</span>
+                    </div>
+                );
+            })}
         </div>
     );
 };

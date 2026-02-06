@@ -150,7 +150,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             if (sources.length > 0) {
                 if (isCut) {
                     await FileSystem.moveItems(sources, currentFolder);
-                    FileSystem._clipboardState = { action: 'copy', paths: [] };
+                    FileSystem._updateClipboard('copy', []);
                 } else {
                     await FileSystem.copyItems(sources, currentFolder);
                 }

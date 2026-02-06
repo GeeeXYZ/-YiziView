@@ -121,17 +121,22 @@ export const FileSystem = {
     // Internal Clipboard State
     _clipboardState: { action: 'copy', paths: [] },
 
+    _updateClipboard: (action, paths) => {
+        FileSystem._clipboardState = { action, paths };
+        window.dispatchEvent(new CustomEvent('clipboard-changed', { detail: FileSystem._clipboardState }));
+    },
+
     copyItems: async (sourcePaths, targetPath) => {
         return await window.electron.copyItems(sourcePaths, targetPath);
     },
 
     copyToClipboard: async (paths) => {
-        FileSystem._clipboardState = { action: 'copy', paths };
+        FileSystem._updateClipboard('copy', paths);
         return await window.electron.copyToClipboard(paths);
     },
 
     cutToClipboard: async (paths) => {
-        FileSystem._clipboardState = { action: 'cut', paths };
+        FileSystem._updateClipboard('cut', paths);
         return await window.electron.copyToClipboard(paths);
     },
 
@@ -156,7 +161,7 @@ export const FileSystem = {
         let successCount = 0;
         if (isCut) {
             successCount = await window.electron.moveItems(sources, targetPath);
-            FileSystem._clipboardState = { action: 'copy', paths: [] };
+            FileSystem._updateClipboard('copy', []);
         } else {
             successCount = await window.electron.copyItems(sources, targetPath);
         }

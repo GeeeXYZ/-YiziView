@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import ImageGrid from './ImageGrid';
 import ImageViewer from './ImageViewer';
 import BottomPanel from './BottomPanel';
+import SortControl from './SortControl';
 import { FileSystem } from '@/managers/FileSystem';
 
 /**
@@ -16,6 +17,7 @@ const Panel = ({
     onDelete,
     onActivate,
     setConfirmModal,
+    hasCloseButton,
 }) => {
     const {
         currentFolder,
@@ -44,31 +46,39 @@ const Panel = ({
 
         const pathToDelete = images[viewingIndex].path;
 
-        setConfirmModal({
-            title: 'Delete Image',
-            message: `Are you sure you want to move "${images[viewingIndex].name}" to the Recycle Bin?`,
-            confirmText: 'Move to Recycle Bin',
-            confirmKind: 'danger',
-            onConfirm: async () => {
-                setConfirmModal(null);
-                const success = await FileSystem.deleteFile(pathToDelete);
-                if (success) {
-                    const newImages = images.filter((_, i) => i !== viewingIndex);
-                    setImages(newImages);
+        const executeDelete = async () => {
+            const success = await FileSystem.deleteFile(pathToDelete);
+            if (success) {
+                const newImages = images.filter((_, i) => i !== viewingIndex);
+                setImages(newImages);
 
-                    if (newImages.length === 0) {
-                        setViewingIndex(null);
-                    } else {
-                        if (viewingIndex >= newImages.length) {
-                            setViewingIndex(newImages.length - 1);
-                        }
+                if (newImages.length === 0) {
+                    setViewingIndex(null);
+                } else {
+                    if (viewingIndex >= newImages.length) {
+                        setViewingIndex(newImages.length - 1);
                     }
-
-                    setSelectedIndices(new Set());
                 }
-            },
-            onCancel: () => setConfirmModal(null)
-        });
+
+                setSelectedIndices(new Set());
+            }
+        };
+
+        if (localStorage.getItem('settings_confirm_delete') === 'false') {
+            executeDelete();
+        } else {
+            setConfirmModal({
+                title: 'Delete Image',
+                message: `Are you sure you want to move "${images[viewingIndex].name}" to the Recycle Bin?`,
+                confirmText: 'Move to Recycle Bin',
+                confirmKind: 'danger',
+                onConfirm: async () => {
+                    setConfirmModal(null);
+                    await executeDelete();
+                },
+                onCancel: () => setConfirmModal(null)
+            });
+        }
     };
 
     const handleBackgroundClick = (e) => {
@@ -102,6 +112,14 @@ const Panel = ({
                 >
                     <div className={`flex-1 font-medium text-sm truncate text-center no-drag ${isActive ? 'text-blue-400' : 'text-gray-400'}`}>
                         {currentFolder ? (currentFolder.length > 60 ? '...' + currentFolder.slice(-60) : currentFolder) : `Panel ${panelId}`}
+                    </div>
+
+                    {/* Sort Controls - positioned on the right with margin to avoid close button */}
+                    <div className={`ml-2 ${hasCloseButton ? 'mr-8' : ''}`}>
+                        <SortControl
+                            sortConfig={panelState.sortConfig}
+                            onSortChange={panelState.handleSortChange}
+                        />
                     </div>
                 </div>
 

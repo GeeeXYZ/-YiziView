@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FileSystem } from '@/managers/FileSystem';
 import ContextMenu from '@/components/ui/ContextMenu';
 import InputModal from '@/components/ui/InputModal';
+import { useExpandedFolders } from '../contexts/ExpandedFoldersContext';
 import {
     ChevronRight,
     Folder,
@@ -15,8 +16,19 @@ import {
     FileInput
 } from 'lucide-react';
 
-const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, onConfirmDelete }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, onConfirmDelete, refreshTrigger, searchQuery = '' }) => {
+    const { expandedSet, setFolderExpanded } = useExpandedFolders() || {};
+    const [isExpanded, setIsExpanded] = useState(() => {
+        if (searchQuery) return false;
+        return expandedSet?.has(path) || false;
+    });
+
+    // Sync with global expanded state
+    useEffect(() => {
+        if (!searchQuery && expandedSet && expandedSet.has(path) !== isExpanded) {
+            setIsExpanded(expandedSet.has(path));
+        }
+    }, [expandedSet, path, searchQuery]);
     const [subfolders, setSubfolders] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasLoaded, setHasLoaded] = useState(false);
@@ -26,6 +38,20 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const [contextMenu, setContextMenu] = useState(null); // { x, y }
     const [modalConfig, setModalConfig] = useState(null); // { type: 'create'|'rename', ... }
     const [isDragOver, setIsDragOver] = useState(false);
+    const [isCut, setIsCut] = useState(false);
+
+    useEffect(() => {
+        const checkCutState = (clipboard) => {
+            const state = clipboard || FileSystem._clipboardState;
+            setIsCut(state.action === 'cut' && state.paths.includes(path));
+        };
+
+        const handleClipboardChange = (e) => checkCutState(e.detail);
+
+        checkCutState();
+        window.addEventListener('clipboard-changed', handleClipboardChange);
+        return () => window.removeEventListener('clipboard-changed', handleClipboardChange);
+    }, [path]);
 
     useEffect(() => {
         if (initialHasChildren === null) {
@@ -33,13 +59,27 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         }
     }, [path]);
 
+    // Refresh when refreshTrigger changes
+    useEffect(() => {
+        if (refreshTrigger !== undefined) {
+            // Always refresh when trigger changes, even if collapsed
+            // This ensures deleted folders are removed from the list
+            if (isExpanded) {
+                refreshSubfolders();
+            } else if (hasLoaded) {
+                // If we had loaded before but are now collapsed, still refresh the list
+                // so deleted items don't show up when we expand again
+                refreshSubfolders();
+            }
+        }
+    }, [refreshTrigger]);
+
     const checkChildren = async () => {
         const has = await FileSystem.checkHasSubdirectories(path);
         setHasChildren(has);
     };
 
     const refreshSubfolders = async () => {
-        if (!isExpanded) return; // If collapsed, next expand will fetch
         setIsLoading(true);
         const folders = await FileSystem.getSubdirectories(path);
         setSubfolders(folders);
@@ -52,25 +92,38 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const handleToggle = async (e) => {
         e && e.stopPropagation();
 
-        if (isExpanded) {
-            setIsExpanded(false);
-            return;
+        const newState = !isExpanded;
+        setIsExpanded(newState);
+
+        if (!searchQuery && setFolderExpanded) {
+            setFolderExpanded(path, newState);
         }
 
-        setIsExpanded(true);
-        // Always fetch to ensure fresh data
-        setIsLoading(true);
-        const folders = await FileSystem.getSubdirectories(path);
-        setSubfolders(folders);
-        setHasLoaded(true);
-        setIsLoading(false);
-        if (folders.length === 0) setHasChildren(false);
+        if (newState && !hasLoaded) {
+            await refreshSubfolders();
+        }
     };
+
+    // Auto-expand when searching
+    useEffect(() => {
+        const MAX_SEARCH_DEPTH = 10;
+        if (searchQuery && level < MAX_SEARCH_DEPTH) {
+            // Auto-expand if not expanded
+            if (!isExpanded) setIsExpanded(true);
+
+            // Only load if not loaded yet (avoids refreshing already loaded folders)
+            if (!hasLoaded) {
+                refreshSubfolders();
+            }
+        }
+    }, [searchQuery]);
 
     const handleSelect = (e) => {
         e.stopPropagation();
         onSelect(path);
     };
+
+
 
     // --- Context Menu Logic ---
     const handleRightClick = (e) => {
@@ -89,6 +142,9 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             const performDelete = async () => {
                 const success = await FileSystem.deleteFile(path);
                 if (success && onRefresh) onRefresh();
+                if (success) {
+                    window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+                }
             };
 
             if (onConfirmDelete) {
@@ -113,7 +169,28 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 // Refresh if expanded
                 if (isExpanded) refreshSubfolders();
                 if (onRefresh) onRefresh();
+                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
             }
+        }
+    };
+
+    const handleKeyDown = async (e) => {
+        // Don't handle shortcuts if modal is open
+        if (modalConfig) return;
+
+        if (!e.ctrlKey && !e.metaKey) return;
+
+        if (e.key === 'x') {
+            e.preventDefault();
+            FileSystem.cutToClipboard([path]);
+        } else if (e.key === 'c') {
+            e.preventDefault();
+            FileSystem.copyToClipboard([path]);
+        } else if (e.key === 'v') {
+            e.preventDefault();
+            handleMenuOption('paste');
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            handleMenuOption('delete');
         }
     };
 
@@ -127,18 +204,25 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 // Expand and refresh
                 if (!isExpanded) handleToggle(null);
                 else refreshSubfolders();
+                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
             }
         } else if (modalConfig.type === 'rename') {
             const success = await FileSystem.renameItem(path, val);
             if (success) {
                 // Rename successful
                 if (onRefresh) onRefresh();
+                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
             }
         }
         setModalConfig(null);
     };
 
     // --- Drag and Drop Logic ---
+    const handleDragStart = (e) => {
+        e.preventDefault();
+        FileSystem.startDrag([path]);
+    };
+
     const handleDragEnter = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -148,8 +232,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const handleDragOver = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // Force 'copy' visual to ensure drop is allowed by OS/Electron
-        // Actual operation (Move vs Copy) is determined in handleDrop by Ctrl key
+        // Always set to 'copy' to allow drop (actual operation determined in handleDrop)
         e.dataTransfer.dropEffect = 'copy';
         setIsDragOver(true);
     };
@@ -157,8 +240,6 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const handleDragLeave = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // Prevent flickering if leaving to a child node
-        // But here we are on the specific row div.
         setIsDragOver(false);
     };
 
@@ -167,11 +248,9 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         e.stopPropagation();
         setIsDragOver(false);
 
-        setIsDragOver(false);
-
         let files = [];
 
-        // Support Native File Drops (OS files)
+        // Support Native File Drops (Electron native drag & OS files)
         if (e.dataTransfer.files.length > 0) {
             files = Array.from(e.dataTransfer.files)
                 .map(f => window.electron.getFilePath(f))
@@ -179,6 +258,12 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         }
 
         if (files.length > 0) {
+            // Check if we are trying to drop a folder into its own subfolder
+            if (files.some(f => path.startsWith(f + '\\') || path.startsWith(f + '/'))) {
+                console.warn('Cannot move a folder into its own subdirectories');
+                return;
+            }
+
             let successCount = 0;
             // Ctrl Key -> Copy, Otherwise -> Move
             if (e.ctrlKey) {
@@ -188,23 +273,44 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             }
 
             if (successCount > 0) {
-                // Refresh if expanded
-                if (isExpanded) refreshSubfolders();
+                // Refresh current folder if expanded
+                if (isExpanded) {
+                    await refreshSubfolders();
+                }
+                // Trigger global refresh for all folder trees
+                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
             }
         }
     };
 
     const isSelected = currentPath === path;
     const paddingLeft = `${level * 12 + 8}px`;
+    const isMatchingSearch = searchQuery && name.toLowerCase().includes(searchQuery.toLowerCase());
+
+    // Scroll into view if matching
+    const itemRef = React.useRef(null);
+    useEffect(() => {
+        if (isMatchingSearch && itemRef.current) {
+            setTimeout(() => {
+                itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+    }, [isMatchingSearch]);
 
     return (
         <div className="select-none relative">
+
             <div
-                className={`flex items-center py-1 pr-2 cursor-pointer transition-colors text-sm border border-transparent ${isSelected ? 'bg-blue-600/30 text-blue-300' : 'hover:bg-neutral-800 text-gray-300'
-                    } ${isDragOver ? '!border-blue-500 !bg-blue-900/40' : ''}`}
+                ref={itemRef}
+                tabIndex={0}
+                className={`flex items-center py-1 pr-2 cursor-pointer transition-all text-sm border border-transparent outline-none ${isSelected ? 'bg-blue-600/30 text-blue-300 focus:bg-blue-600/40' : 'hover:bg-neutral-800 text-gray-300 focus:bg-neutral-800'
+                    } ${isDragOver ? '!border-blue-500 !bg-blue-900/40' : ''} ${isCut ? 'opacity-40 grayscale-[0.5]' : ''} ${isMatchingSearch ? '!bg-yellow-900/30 !text-yellow-200' : ''} ${searchQuery && !isMatchingSearch ? 'opacity-40 hover:opacity-100' : ''}`}
                 style={{ paddingLeft }}
                 onClick={handleSelect}
+                onKeyDown={handleKeyDown}
                 onContextMenu={handleRightClick}
+                draggable="true"
+                onDragStart={handleDragStart}
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -233,7 +339,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             {/* Subfolders */}
             {isExpanded && (
                 <div>
-                    {isLoading ? (
+                    {isLoading && subfolders.length === 0 ? (
                         <div className="text-xs text-gray-600 py-1" style={{ paddingLeft: `${(level + 1) * 12 + 24}px` }}>
                             Loading...
                         </div>
@@ -249,6 +355,8 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                                 initialHasChildren={folder.hasChildren}
                                 onRefresh={refreshSubfolders}
                                 onConfirmDelete={onConfirmDelete}
+                                refreshTrigger={refreshTrigger}
+                                searchQuery={searchQuery}
                             />
                         ))
                     )}

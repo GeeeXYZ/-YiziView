@@ -107,17 +107,39 @@ ipcMain.handle('scan-folder', async (event, args) => {
 
   try {
     // 1. Manage Watcher for this panel
-    if (watchers.has(panelId)) {
-      await watchers.get(panelId).close();
-      watchers.delete(panelId);
-    }
+    let w;
+    const existingEntry = watchers.get(panelId);
 
-    const w = chokidar.watch(folderPath, {
-      ignored: /(^|[\/\\])\../, // ignore dotfiles
-      persistent: true,
-      ignoreInitial: true,
-      depth: 0
-    });
+    // Check if we can reuse the existing watcher
+    // We now store { path, watcher } in the map
+    if (existingEntry && existingEntry.path === folderPath && existingEntry.watcher) {
+      w = existingEntry.watcher;
+      // Clean up old listeners to prevent duplicates (since event.sender might have changed although unlikely in same session)
+      w.removeAllListeners('add');
+      w.removeAllListeners('unlink');
+    } else {
+      // Close old watcher if it exists
+      if (existingEntry) {
+        // Handle both legacy (direct watcher) and new ({watcher}) format
+        const oldW = existingEntry.watcher || existingEntry;
+        if (oldW && typeof oldW.close === 'function') {
+          await oldW.close();
+        }
+      }
+
+      w = chokidar.watch(folderPath, {
+        ignored: /(^|[\/\\])\../, // ignore dotfiles
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 100
+        },
+        depth: 0
+      });
+
+      watchers.set(panelId, { path: folderPath, watcher: w });
+    }
 
     w.on('add', (path) => {
       if (!event.sender.isDestroyed()) {
@@ -131,29 +153,42 @@ ipcMain.handle('scan-folder', async (event, args) => {
       }
     });
 
-    watchers.set(panelId, w);
-
     // 2. Read Files
     const files = await fs.readdir(folderPath);
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'];
+    console.log(`[Scan] Scanning ${folderPath}, found ${files.length} files`);
+
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.mp4', '.webm', '.mov', '.mkv'];
     // Use pathToFileURL for safe encoding (handles Chinese, spaces, #, etc.)
     const { pathToFileURL } = require('url');
 
-    const images = files
-      .filter(file => imageExtensions.includes(path.extname(file).toLowerCase()))
-      .map(file => {
+    const images = await Promise.all(files
+      .filter(file => {
+        const ext = path.extname(file).toLowerCase();
+        return imageExtensions.includes(ext);
+      })
+      .map(async file => {
         const fullPath = path.join(folderPath, file);
         const fileUrl = pathToFileURL(fullPath).href; // file:///C:/... (encoded)
         // Convert to media schema
         const mediaUrl = fileUrl.replace('file:///', 'media://local/');
 
+        let stats = { size: 0, mtimeMs: 0 };
+        try {
+          stats = await fs.stat(fullPath);
+        } catch (e) {
+          console.error(`Failed to stat file: ${fullPath}`, e);
+        }
+
         return {
           name: file,
           path: fullPath,
-          url: mediaUrl
+          url: mediaUrl,
+          size: stats.size,
+          mtimeMs: stats.mtimeMs
         };
-      });
+      }));
 
+    console.log(`[Scan] Returning ${images.length} images`);
     return images;
   } catch (error) {
     console.error('Error scanning folder:', error);
@@ -243,7 +278,10 @@ ipcMain.handle('rename-item', async (event, { oldPath, newName }) => {
 
 ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
   // Move files/folders to targetPath
+  const fileTagsPath = path.join(app.getPath('userData'), 'file_tags.json');
   let successCount = 0;
+  const pathUpdates = []; // Track {oldPath, newPath} for tag updates
+
   for (const src of sourcePaths) {
     try {
       const fileName = path.basename(src);
@@ -259,11 +297,55 @@ ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
           throw err;
         }
       }
+
+      // Track path change for tag updates
+      pathUpdates.push({ oldPath: src, newPath: dest });
       successCount++;
     } catch (error) {
       console.error(`Error moving ${src}:`, error);
     }
   }
+
+  // Update tag database with new paths
+  if (pathUpdates.length > 0) {
+    try {
+      let fileTags = {};
+      try {
+        const data = await fs.readFile(fileTagsPath, 'utf-8');
+        fileTags = JSON.parse(data);
+      } catch (e) { }
+
+      let changed = false;
+      for (const { oldPath, newPath } of pathUpdates) {
+        // Update direct file paths
+        if (fileTags[oldPath]) {
+          fileTags[newPath] = fileTags[oldPath];
+          delete fileTags[oldPath];
+          changed = true;
+        }
+
+        // Update paths for files inside moved folders
+        const oldPathPrefix = oldPath + path.sep;
+        const newPathPrefix = newPath + path.sep;
+        for (const filePath in fileTags) {
+          if (filePath.startsWith(oldPathPrefix)) {
+            const relativePath = filePath.substring(oldPathPrefix.length);
+            const updatedPath = path.join(newPathPrefix, relativePath);
+            fileTags[updatedPath] = fileTags[filePath];
+            delete fileTags[filePath];
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        await fs.writeFile(fileTagsPath, JSON.stringify(fileTags, null, 2));
+      }
+    } catch (error) {
+      console.error('Error updating tag database after move:', error);
+    }
+  }
+
   return successCount;
 });
 
@@ -344,8 +426,13 @@ const hasSubdirectories = async (dirPath) => {
 ipcMain.handle('get-subdirectories', async (event, folderPath) => {
   try {
     const dirents = await fs.readdir(folderPath, { withFileTypes: true });
-    // Filter first
-    const folders = dirents.filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('.'));
+    // Filter first (Exclude dots, and common junk)
+    const ignoredFolders = new Set(['node_modules', '__pycache__', '$RECYCLE.BIN', 'System Volume Information', '.git', '.vs', '.idea', '.vscode']);
+    const folders = dirents.filter(dirent =>
+      dirent.isDirectory() &&
+      !dirent.name.startsWith('.') &&
+      !ignoredFolders.has(dirent.name)
+    );
 
     // Then check each for children (parallel)
     const result = await Promise.all(folders.map(async (dirent) => {
@@ -359,7 +446,7 @@ ipcMain.handle('get-subdirectories', async (event, folderPath) => {
 
     return result;
   } catch (error) {
-    console.error('Error reading subdirectories:', error);
+    console.error('Error reading subdirectories for:', folderPath, error);
     return [];
   }
 });
@@ -388,6 +475,51 @@ ipcMain.handle('save-favorites', async (event, favorites) => {
     console.error('Error saving favorites:', error);
     return false;
   }
+});
+
+// --- Expanded Folders Persistence ---
+const expandedFoldersPath = path.join(app.getPath('userData'), 'expanded_folders.json');
+let expandedFoldersCache = new Set();
+let expandedFoldersLoaded = false;
+
+const loadExpandedFolders = async () => {
+  if (expandedFoldersLoaded) return;
+  try {
+    const data = await fs.readFile(expandedFoldersPath, 'utf-8');
+    expandedFoldersCache = new Set(JSON.parse(data));
+  } catch (e) {
+    expandedFoldersCache = new Set();
+  }
+  expandedFoldersLoaded = true;
+};
+
+// Auto-save debounce
+let saveExpandedTimeout = null;
+const saveExpandedFolders = () => {
+  if (saveExpandedTimeout) clearTimeout(saveExpandedTimeout);
+  saveExpandedTimeout = setTimeout(async () => {
+    try {
+      await fs.writeFile(expandedFoldersPath, JSON.stringify([...expandedFoldersCache], null, 2));
+    } catch (e) {
+      console.error('Failed to save expanded folders:', e);
+    }
+  }, 1000); // Save after 1s of inactivity
+};
+
+ipcMain.handle('get-expanded-folders', async () => {
+  await loadExpandedFolders();
+  return [...expandedFoldersCache];
+});
+
+ipcMain.handle('set-folder-expanded', async (event, { path: folderPath, expanded }) => {
+  await loadExpandedFolders();
+  if (expanded) {
+    expandedFoldersCache.add(folderPath);
+  } else {
+    expandedFoldersCache.delete(folderPath);
+  }
+  saveExpandedFolders();
+  return true;
 });
 
 const sessionPath = path.join(app.getPath('userData'), 'session.json');
@@ -492,6 +624,7 @@ ipcMain.handle('create-tag', async (event, tagName) => {
 
 ipcMain.handle('delete-tag', async (event, tagName) => {
   try {
+    // 1. Delete from tags.json
     let tags = [];
     try {
       const data = await fs.readFile(tagsPath, 'utf-8');
@@ -501,6 +634,36 @@ ipcMain.handle('delete-tag', async (event, tagName) => {
 
     const newTags = tags.filter(t => t.name !== tagName);
     await fs.writeFile(tagsPath, JSON.stringify(newTags, null, 2));
+
+    // 2. Remove tag from all files in file_tags.json
+    const fileTagsPath = path.join(app.getPath('userData'), 'file_tags.json');
+    try {
+      let fileTags = {};
+      try {
+        const ftData = await fs.readFile(fileTagsPath, 'utf-8');
+        fileTags = JSON.parse(ftData);
+      } catch (e) { }
+
+      let changed = false;
+      for (const filePath in fileTags) {
+        const tagList = fileTags[filePath];
+        if (Array.isArray(tagList) && tagList.includes(tagName)) {
+          fileTags[filePath] = tagList.filter(t => t !== tagName);
+          // Remove file entry if it has no tags left
+          if (fileTags[filePath].length === 0) {
+            delete fileTags[filePath];
+          }
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await fs.writeFile(fileTagsPath, JSON.stringify(fileTags, null, 2));
+      }
+    } catch (error) {
+      console.error('Error cleaning up file tags:', error);
+    }
+
     return newTags;
   } catch (error) {
     console.error('Error deleting tag:', error);
@@ -852,6 +1015,74 @@ ipcMain.handle('read-image-metadata', async (event, filePath) => {
       offset += length + 4; // +4 for CRC
     }
 
+    // If prompt is missing but workflow exists (common in ComfyUI), try to extract from workflow
+    if (!result.prompt && result.workflow) {
+      try {
+        const workflow = JSON.parse(result.workflow);
+        // Look for nodes with class_type 'Text Multiline', 'Primitive', etc.
+        // Or finding nodes that are inputs to KSampler/CLIPTextEncode
+
+        let foundText = [];
+
+        // Strategy 1: Iterate all nodes and find specific text widgets
+        if (workflow.nodes) {
+          workflow.nodes.forEach(node => {
+            if (node.widgets_values) {
+              // Arrays of strings are potential prompts
+              node.widgets_values.forEach(val => {
+                if (typeof val === 'string' && val.length > 20) {
+                  // Heuristic: Long strings are likely prompts
+                  foundText.push(val);
+                }
+              });
+            }
+          });
+        }
+
+        // Strategy 2: If API format (object with keys as node IDs)
+        if (!workflow.nodes && typeof workflow === 'object') {
+          Object.values(workflow).forEach(node => {
+            if (node.inputs && node.inputs.text && typeof node.inputs.text === 'string') {
+              foundText.push(node.inputs.text);
+            }
+            // Handle 'Text Multiline' specifically as per user request
+            if (node.class_type === 'Text Multiline' && node.inputs && node.inputs.text) {
+              // Add to start if it's explicitly a text node
+              foundText.unshift(node.inputs.text);
+            }
+            // CLIPTextEncode usually has 'text' input
+            if (node.class_type === 'CLIPTextEncode' && node.inputs && node.inputs.text) {
+              foundText.push(node.inputs.text);
+            }
+          });
+        }
+
+        if (foundText.length > 0) {
+          // Join distinctive prompts
+          result.prompt = [...new Set(foundText)].join('\n\n');
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
+    // Also check 'prompt' JSON content if it exists but is raw JSON
+    if (result.prompt && result.prompt.trim().startsWith('{')) {
+      try {
+        // If prompt is actually the API JSON (common in some save workflows)
+        const promptJson = JSON.parse(result.prompt);
+        let foundText = [];
+        Object.values(promptJson).forEach(node => {
+          if (node.inputs && node.inputs.text && typeof node.inputs.text === 'string') {
+            foundText.push(node.inputs.text);
+          }
+        });
+        if (foundText.length > 0) {
+          result.prompt_parsed = [...new Set(foundText)].join('\n\n');
+        }
+      } catch (e) { }
+    }
+
     return result;
   } catch (error) {
     console.error('Error reading metadata:', error);
@@ -860,6 +1091,12 @@ ipcMain.handle('read-image-metadata', async (event, filePath) => {
 });
 
 ipcMain.handle('get-thumbnail', async (event, filePath) => {
+  // Video bypass: return original path (frontend handles preview)
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.mp4', '.webm', '.mov'].includes(ext)) {
+    return `media://local/${filePath.replace(/\\/g, '/')}`;
+  }
+
   if (!sharp) return `media://local/${filePath.replace(/\\/g, '/')}`; // Fallback if sharp missing
 
   try {
@@ -878,6 +1115,16 @@ ipcMain.handle('get-thumbnail', async (event, filePath) => {
     // Check if exists
     try {
       await fs.access(cachePath);
+
+      // Check if cache is stale (source file newer than cache)
+      const sourceStats = await fs.stat(filePath);
+      const cacheStats = await fs.stat(cachePath);
+
+      if (sourceStats.mtime > cacheStats.mtime) {
+        // Stale cache, force regenerate
+        throw new Error('Cache Stale');
+      }
+
       return `media://local/${cachePath.replace(/\\/g, '/')}`;
     } catch {
       // Generate

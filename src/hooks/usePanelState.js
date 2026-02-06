@@ -13,35 +13,59 @@ export const usePanelState = (panelId) => {
     const [lastSelectedIndex, setLastSelectedIndex] = useState(null);
     const [viewingIndex, setViewingIndex] = useState(null);
     const [aspectRatio, setAspectRatio] = useState('1:1');
+    const [sortConfig, setSortConfig] = useState({ type: 'name', direction: 'asc' });
+
+    // Help application sort
+    const applySort = (imgs, config = sortConfig) => {
+        const { type, direction } = config;
+        return [...imgs].sort((a, b) => {
+            if (type === 'name') {
+                const nameA = a.name.toLowerCase();
+                const nameB = b.name.toLowerCase();
+                return direction === 'asc'
+                    ? nameA.localeCompare(nameB)
+                    : nameB.localeCompare(nameA);
+            } else if (type === 'date') {
+                return direction === 'asc'
+                    ? a.mtimeMs - b.mtimeMs
+                    : b.mtimeMs - a.mtimeMs;
+            }
+            return 0;
+        });
+    };
 
     // Folder change listener (Auto-refresh)
     useEffect(() => {
         if (!currentFolder || currentFolder.startsWith('Tag: ') || currentFolder.startsWith('Tags (')) return;
 
-        const handleFolderChange = async ({ type, path: changedPath }) => {
-            // Check if context is the current folder
-            const changedDir = await window.electron.getDirname(changedPath);
+        let debounceTimer = null;
 
-            if (changedDir === currentFolder) {
-                // Refresh folder content
-                const updatedImages = await FileSystem.scanFolder(currentFolder, panelId);
-                setImages(updatedImages);
+        const handleFolderChange = async ({ type, path: changedPath }) => {
+            const changedDir = await window.electron.getDirname(changedPath);
+            const normalize = (p) => p ? p.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase() : '';
+            if (normalize(changedDir) === normalize(currentFolder)) {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(async () => {
+                    const updatedImages = await FileSystem.scanFolder(currentFolder, panelId);
+                    setImages(applySort(updatedImages));
+                    debounceTimer = null;
+                }, 200);
             }
         };
 
         const removeListener = window.electron.onFolderChange((event, data) => handleFolderChange(data));
-
         return () => {
             if (removeListener) removeListener();
+            if (debounceTimer) clearTimeout(debounceTimer);
         };
-    }, [currentFolder]);
+    }, [currentFolder, sortConfig]); // Added sortConfig to dependency
 
     // Handle folder selection
     const handleFolderSelect = async (folderPath) => {
         setCurrentFolder(folderPath);
         setLoading(true);
         const imgs = await FileSystem.scanFolder(folderPath, panelId);
-        setImages(imgs);
+        setImages(applySort(imgs));
         setLoading(false);
         setSelectedIndices(new Set());
         setLastSelectedIndex(null);
@@ -61,7 +85,7 @@ export const usePanelState = (panelId) => {
 
         setLoading(true);
         const files = await FileSystem.getFilesByTag(tagList, mode);
-        setImages(files);
+        setImages(applySort(files));
         setLoading(false);
         setSelectedIndices(new Set());
         setLastSelectedIndex(null);
@@ -70,6 +94,13 @@ export const usePanelState = (panelId) => {
         const modeStr = mode === 'intersection' ? 'AND' : 'OR';
         const displayStr = tagList.length === 1 ? `Tag: ${tagList[0]}` : `Tags (${modeStr}): ${tagList.join(', ')}`;
         setCurrentFolder(displayStr);
+    };
+
+    // Handle sort change
+    const handleSortChange = (type, direction) => {
+        const newConfig = { type, direction };
+        setSortConfig(newConfig);
+        setImages(applySort(images, newConfig));
     };
 
     // Navigation for viewer
@@ -132,6 +163,7 @@ export const usePanelState = (panelId) => {
         lastSelectedIndex,
         viewingIndex,
         aspectRatio,
+        sortConfig,
 
         // Setters
         setImages,
@@ -149,5 +181,6 @@ export const usePanelState = (panelId) => {
         handleImageClick,
         handleSelectionChange,
         handleImageDoubleClick,
+        handleSortChange,
     };
 };

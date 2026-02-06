@@ -5,8 +5,15 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [clearing, setClearing] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(() => localStorage.getItem('settings_confirm_delete') !== 'false');
 
     if (!isOpen) return null;
+
+    const handleToggleConfirmDelete = () => {
+        const newValue = !confirmDelete;
+        setConfirmDelete(newValue);
+        localStorage.setItem('settings_confirm_delete', newValue);
+    };
 
     const handleClearThumbnails = async () => {
         setClearing(true);
@@ -76,6 +83,29 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* General Settings */}
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">General</h3>
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Confirm before deletion</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Show a confirmation dialog when deleting files or folders.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleToggleConfirmDelete}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${confirmDelete ? 'bg-blue-600' : 'bg-neutral-600'}`}
+                                >
+                                    <span
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${confirmDelete ? 'translate-x-6' : 'translate-x-1'}`}
+                                    />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Cache Management */}
                     <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Cache Management</h3>

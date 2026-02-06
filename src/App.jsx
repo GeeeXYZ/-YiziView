@@ -105,7 +105,29 @@ function App() {
         if (session.panelPaths) {
           Object.entries(session.panelPaths).forEach(([pId, path]) => {
             if (path && panelStates[pId]) {
-              panelStates[pId].handleFolderSelect(path);
+              // Check if it's a tag path
+              if (path.startsWith('Tag: ') || path.startsWith('Tags (')) {
+                let tags = [];
+                let mode = 'union';
+
+                if (path.startsWith('Tag: ')) {
+                  tags = [path.substring(5)];
+                } else {
+                  // Format: Tags (AND): tag1, tag2 OR Tags (OR): tag1, tag2
+                  const match = path.match(/Tags \((AND|OR)\): (.+)/);
+                  if (match) {
+                    mode = match[1] === 'AND' ? 'intersection' : 'union';
+                    tags = match[2].split(', ').map(t => t.trim());
+                  }
+                }
+
+                if (tags.length > 0) {
+                  panelStates[pId].handleTagSelect(tags, mode);
+                }
+              } else {
+                // Regular folder
+                panelStates[pId].handleFolderSelect(path);
+              }
             }
           });
         }
@@ -164,16 +186,28 @@ function App() {
     if (sources.length > 0) {
       if (isCut) {
         await FileSystem.moveItems(sources, targetFolder);
-        FileSystem._clipboardState = { action: 'copy', paths: [] };
+        FileSystem._updateClipboard('copy', []);
       } else {
         await FileSystem.copyItems(sources, targetFolder);
       }
+      // Trigger global refresh for folder trees
+      window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
     }
   };
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e) => {
+      // Don't handle shortcuts if an input/textarea is focused
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.isContentEditable
+      )) {
+        return;
+      }
+
       // Ctrl+\ : Toggle layout
       if (e.ctrlKey && e.key === '\\') {
         e.preventDefault();
@@ -235,24 +269,19 @@ function App() {
       // Delete/Backspace for active panel
       if (!activeState) return;
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && activeState.selectedIndices.size > 0) {
-        if (activeState.viewingIndex !== null) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // If images are selected, delete them
+        if (activeState.selectedIndices.size > 0) {
+          if (activeState.viewingIndex !== null) return;
 
-        const pathsToDelete = [];
-        activeState.selectedIndices.forEach(idx => {
-          if (activeState.images[idx]) pathsToDelete.push(activeState.images[idx].path);
-        });
+          const pathsToDelete = [];
+          activeState.selectedIndices.forEach(idx => {
+            if (activeState.images[idx]) pathsToDelete.push(activeState.images[idx].path);
+          });
 
-        if (pathsToDelete.length === 0) return;
+          if (pathsToDelete.length === 0) return;
 
-        setConfirmModal({
-          title: 'Delete Items',
-          message: `Are you sure you want to move ${pathsToDelete.length} item(s) to the Recycle Bin?`,
-          confirmText: 'Move to Recycle Bin',
-          confirmKind: 'danger',
-          onConfirm: async () => {
-            setConfirmModal(null);
-
+          const executeDeleteFiles = async () => {
             const { FileSystem } = await import('./managers/FileSystem');
             for (const path of pathsToDelete) {
               await FileSystem.deleteFile(path);
@@ -263,9 +292,60 @@ function App() {
             activeState.setImages(newImages);
             activeState.setSelectedIndices(new Set());
             activeState.setLastSelectedIndex(null);
-          },
-          onCancel: () => setConfirmModal(null)
-        });
+
+            // Trigger global refresh for folder trees
+            window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+          };
+
+          if (localStorage.getItem('settings_confirm_delete') === 'false') {
+            executeDeleteFiles();
+          } else {
+            setConfirmModal({
+              title: 'Delete Items',
+              message: `Are you sure you want to move ${pathsToDelete.length} item(s) to the Recycle Bin?`,
+              confirmText: 'Move to Recycle Bin',
+              confirmKind: 'danger',
+              onConfirm: async () => {
+                setConfirmModal(null);
+                await executeDeleteFiles();
+              },
+              onCancel: () => setConfirmModal(null)
+            });
+          }
+        }
+        // If no images selected but a folder is open, delete the folder
+        else if (activeState.currentFolder) {
+          e.preventDefault();
+          const folderPath = activeState.currentFolder;
+          const folderName = folderPath.split('\\').pop() || folderPath.split('/').pop() || folderPath;
+
+          const executeDeleteFolder = async () => {
+            const { FileSystem } = await import('./managers/FileSystem');
+            const success = await FileSystem.deleteFile(folderPath);
+            if (success) {
+              // Clear the panel state
+              activeState.handleFolderSelect(null);
+              // Trigger global refresh for folder trees
+              window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+            }
+          };
+
+          if (localStorage.getItem('settings_confirm_delete') === 'false') {
+            executeDeleteFolder();
+          } else {
+            setConfirmModal({
+              title: 'Delete Folder',
+              message: `Are you sure you want to move "${folderName}" to the Recycle Bin?`,
+              confirmText: 'Move to Recycle Bin',
+              confirmKind: 'danger',
+              onConfirm: async () => {
+                setConfirmModal(null);
+                await executeDeleteFolder();
+              },
+              onCancel: () => setConfirmModal(null)
+            });
+          }
+        }
       }
 
       // Select All (Ctrl+A) for active panel
@@ -296,6 +376,7 @@ function App() {
         panelState={panelState}
         onActivate={() => handlePanelActivate(panel.id)}
         setConfirmModal={setConfirmModal}
+        hasCloseButton={panels.length > 1}
       />
     );
   };

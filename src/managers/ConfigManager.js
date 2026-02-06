@@ -52,15 +52,21 @@ export const ConfigManager = {
     },
 
     createTag: async (tagName) => {
-        return await FileSystem.createTag(tagName);
+        const newTags = await FileSystem.createTag(tagName);
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
     },
 
     renameTag: async (oldName, newName) => {
-        return await FileSystem.renameTag(oldName, newName);
+        const newTags = await FileSystem.renameTag(oldName, newName);
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
     },
 
     deleteTag: async (tagName) => {
-        return await FileSystem.deleteTag(tagName);
+        const newTags = await FileSystem.deleteTag(tagName);
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
     },
 
     addFilesToTag: async (files, tagName) => {
