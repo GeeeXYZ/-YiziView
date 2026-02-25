@@ -16,8 +16,8 @@ import {
     Filter,
     Trash2,
     Search,
-    Plus,
-    Minus
+    Minus,
+    Heart
 } from 'lucide-react';
 
 // Helper to get basename (simple version since we don't have node path in renderer directly standardly unless verified, 
@@ -404,6 +404,22 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                         onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
                     >
                         <div className="w-full h-[1px] bg-neutral-700" />
+                    </div>
+
+                    {/* Fav Images Button */}
+                    <div className="shrink-0 border-b border-t border-neutral-700/50 bg-neutral-800">
+                        <div
+                            className={`group flex items-center justify-between px-4 py-3 cursor-pointer transition-all ${currentPath === 'Favorites' ? 'bg-blue-600 shadow-md text-white' : 'text-gray-500 hover:bg-neutral-700 hover:text-gray-300'}`}
+                            onClick={() => {
+                                setSelectedTags(new Set());
+                                onFolderSelect('Favorites');
+                            }}
+                        >
+                            <div className="text-xs font-bold uppercase tracking-wider flex items-center gap-1 truncate flex-1 min-w-0">
+                                <Heart size={12} className="shrink-0" />
+                                <span className="truncate">Fav Images</span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Bottom Section: Tags */}

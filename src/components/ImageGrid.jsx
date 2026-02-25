@@ -11,7 +11,8 @@ import {
     FileText,
     Check,
     Scissors,
-    Clipboard
+    Clipboard,
+    Heart
 } from 'lucide-react';
 import Thumbnail from './Thumbnail';
 
@@ -22,6 +23,34 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     const [contextMenu, setContextMenu] = useState(null);
     const containerRef = React.useRef(null);
     const dragStartPos = React.useRef(null);
+
+    // Favorites Tracking
+    const [favSet, setFavSet] = useState(() => new Set(JSON.parse(localStorage.getItem('yizi_fav_images') || '[]')));
+
+    useEffect(() => {
+        const updateFavs = () => {
+            setFavSet(new Set(JSON.parse(localStorage.getItem('yizi_fav_images') || '[]')));
+        };
+        window.addEventListener('fav-images-updated', updateFavs);
+        return () => window.removeEventListener('fav-images-updated', updateFavs);
+    }, []);
+
+    const toggleFavorite = (e, path) => {
+        e.stopPropagation();
+        const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+        const isFav = favs.includes(path);
+        let newFavs;
+        if (isFav) {
+            newFavs = favs.filter(p => p !== path);
+        } else {
+            newFavs = [...favs, path];
+        }
+        localStorage.setItem('yizi_fav_images', JSON.stringify(newFavs));
+        window.dispatchEvent(new Event('fav-images-updated'));
+
+        // Let App handle "Favorites" virtual folder refresh if necessary
+        // Or user can just reload the category. For now this updates UI dynamically!
+    };
 
     // New states from instruction
     const gridItemSizeRef = React.useRef(200); // Zoom state ref for performance
@@ -439,6 +468,15 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                         {img.name}
                                     </div>
+
+                                    {/* Favorite Heart Circle */}
+                                    <button
+                                        onClick={(e) => toggleFavorite(e, img.path)}
+                                        className={`absolute top-2 left-2 p-1.5 rounded-full z-30 transition-all ${favSet.has(img.path) ? 'bg-[#A61616]/90 text-white shadow-md' : 'bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-black/60 hover:text-white'}`}
+                                        title={favSet.has(img.path) ? "Unfavorite" : "Favorite"}
+                                    >
+                                        <Heart size={14} fill={favSet.has(img.path) ? "currentColor" : "none"} strokeWidth={2} />
+                                    </button>
 
                                     {/* Selection Check Circle */}
                                     {selectedIndices.has(i) && (

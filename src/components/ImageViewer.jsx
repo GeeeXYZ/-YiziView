@@ -1,10 +1,63 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { Heart } from 'lucide-react';
 
 const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [zoom, setZoom] = useState(1);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
+    const [isAutoPlay, setIsAutoPlay] = useState(false);
+    const [isFav, setIsFav] = useState(false);
     const dragStartRef = useRef({ x: 0, y: 0 });
+    const onNextRef = useRef(onNext);
+
+    useEffect(() => {
+        if (image) {
+            const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+            setIsFav(favs.includes(image.path));
+        }
+    }, [image]);
+
+    // Listen to external favorite updates
+    useEffect(() => {
+        const handleFavUpdate = () => {
+            if (image) {
+                const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+                setIsFav(favs.includes(image.path));
+            }
+        };
+        window.addEventListener('fav-images-updated', handleFavUpdate);
+        return () => window.removeEventListener('fav-images-updated', handleFavUpdate);
+    }, [image]);
+
+    const toggleFavorite = (e) => {
+        e.stopPropagation();
+        if (!image) return;
+        const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+        const currentlyFav = favs.includes(image.path);
+        let newFavs;
+        if (currentlyFav) {
+            newFavs = favs.filter(p => p !== image.path);
+        } else {
+            newFavs = [...favs, image.path];
+        }
+        localStorage.setItem('yizi_fav_images', JSON.stringify(newFavs));
+        setIsFav(!currentlyFav);
+        window.dispatchEvent(new Event('fav-images-updated'));
+    };
+
+    useEffect(() => {
+        onNextRef.current = onNext;
+    }, [onNext]);
+
+    useEffect(() => {
+        let interval;
+        if (isAutoPlay) {
+            interval = setInterval(() => {
+                if (onNextRef.current) onNextRef.current();
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [isAutoPlay]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -98,16 +151,45 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
             onClick={onClose} // Click backdrop to close
         >
-            {/* Close Button - Moved to LEFT to avoid conflict with native window controls (TitleBarOverlay) */}
-            <button
-                onClick={(e) => { e.stopPropagation(); onClose(); }}
-                className="absolute top-4 left-4 text-white/70 hover:text-white z-[60] p-2"
-                title="Close (Esc)"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
+            {/* Top Bar Controls */}
+            <div className="absolute top-4 left-4 flex gap-4 z-[60]">
+                {/* Close Button */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); onClose(); setIsAutoPlay(false); }}
+                    className="text-white/70 hover:text-white p-2"
+                    title="Close (Esc)"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+
+                {/* Favorite Button */}
+                <button
+                    onClick={toggleFavorite}
+                    className={`p-2 transition-colors ${isFav ? 'text-[#A61616]' : 'text-white/70 hover:text-white'}`}
+                    title={isFav ? "Unfavorite" : "Favorite"}
+                >
+                    <Heart className="h-8 w-8" fill={isFav ? "currentColor" : "none"} strokeWidth={1.5} />
+                </button>
+
+                {/* Auto Play Button */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); setIsAutoPlay(!isAutoPlay); }}
+                    className={`p-2 transition-colors ${isAutoPlay ? 'text-blue-400' : 'text-white/70 hover:text-white'}`}
+                    title={isAutoPlay ? "Stop AutoPlay" : "Start AutoPlay"}
+                >
+                    {isAutoPlay ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                        </svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                    )}
+                </button>
+            </div>
 
             {/* Main Content (Image or Video) */}
             <div
@@ -118,7 +200,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         src={image.url}
                         controls
                         autoPlay
-                        className="max-h-screen max-w-screen object-contain pointer-events-auto"
+                        className="w-full h-full object-contain pointer-events-auto"
                         onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
@@ -130,7 +212,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                             transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                             cursor: isDragging ? 'grabbing' : 'grab' // Always show grab
                         }}
-                        className="max-h-screen max-w-screen object-contain select-none pointer-events-auto"
+                        className="w-full h-full object-contain select-none pointer-events-auto"
                         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image
                         onMouseDown={handleMouseDown}
                     />

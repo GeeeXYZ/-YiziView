@@ -4,7 +4,11 @@ A high-performance Windows desktop image viewer built with Electron, React, and 
 
 ## Key Features
 
-### 🖼️ Enhanced Image Grid
+### 🖼️ Immersive Image Viewer
+- **Full-Screen Adaptation**: Images and videos automatically scale to fit the entire screen while maintaining their original aspect ratio.
+- **Auto-Play Slideshow**: Conveniently cycle through images with an automatic, timed slideshow feature.
+
+### 🔲 Enhanced Image Grid
 - **Dynamic Aspect Ratio Switcher**: Support for 1:1, 16:9, 9:16, 4:3, and 3:4 ratios.
 - **Custom CSS Shape Icons**: Visual representation of aspect ratios in the UI.
 - **Precise Selection System**: Support for single click, shift-click range selection, and drag-to-select.
@@ -52,3 +56,9 @@ npm run build
 - `src/`: Renderer process (React components, UI logic)
 - `storage/`: Local data (Tags, Favorites)
 - `userData/thumbnails`: Cached image previews
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 YiziView Contributors. All rights reserved.

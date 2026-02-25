@@ -36,7 +36,7 @@ export const usePanelState = (panelId) => {
 
     // Folder change listener (Auto-refresh)
     useEffect(() => {
-        if (!currentFolder || currentFolder.startsWith('Tag: ') || currentFolder.startsWith('Tags (')) return;
+        if (!currentFolder || currentFolder === 'Favorites' || currentFolder.startsWith('Tag: ') || currentFolder.startsWith('Tags (')) return;
 
         let debounceTimer = null;
 
@@ -64,7 +64,28 @@ export const usePanelState = (panelId) => {
     const handleFolderSelect = async (folderPath) => {
         setCurrentFolder(folderPath);
         setLoading(true);
-        const imgs = await FileSystem.scanFolder(folderPath, panelId);
+        let imgs = [];
+
+        if (folderPath === 'Favorites') {
+            const favPaths = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+            imgs = favPaths.map(p => {
+                const name = p.split(/[\\/]/).pop();
+                // We need to encode it properly like pathToFileURL would
+                // Since this is frontend, we'll construct the media URL carefully
+                const cleanPath = p.replace(/\\/g, '/');
+                let urlPath = cleanPath.split('/').map(encodeURIComponent).join('/');
+                if (!urlPath.startsWith('/')) urlPath = '/' + urlPath;
+                return {
+                    name,
+                    path: p,
+                    url: `media://local${urlPath}`,
+                    mtimeMs: 0
+                };
+            });
+        } else {
+            imgs = await FileSystem.scanFolder(folderPath, panelId);
+        }
+
         setImages(applySort(imgs));
         setLoading(false);
         setSelectedIndices(new Set());
