@@ -469,13 +469,13 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                         {img.name}
                                     </div>
 
-                                    {/* Favorite Heart Circle */}
+                                    {/* Favorite Heart */}
                                     <button
                                         onClick={(e) => toggleFavorite(e, img.path)}
-                                        className={`absolute top-2 left-2 p-1.5 rounded-full z-30 transition-all ${favSet.has(img.path) ? 'bg-[#A61616]/90 text-white shadow-md' : 'bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-black/60 hover:text-white'}`}
+                                        className={`absolute top-2 left-2 p-1.5 z-30 transition-all drop-shadow-md ${favSet.has(img.path) ? 'text-[#A61616] opacity-100' : 'text-white/70 opacity-0 group-hover:opacity-100 hover:text-white'}`}
                                         title={favSet.has(img.path) ? "Unfavorite" : "Favorite"}
                                     >
-                                        <Heart size={14} fill={favSet.has(img.path) ? "currentColor" : "none"} strokeWidth={2} />
+                                        <Heart size={18} fill={favSet.has(img.path) ? "currentColor" : "none"} strokeWidth={1.5} />
                                     </button>
 
                                     {/* Selection Check Circle */}
