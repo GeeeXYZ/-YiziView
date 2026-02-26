@@ -59,6 +59,11 @@ npm run build
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **YiziView Non-Commercial EULA** - see the [LICENSE](LICENSE) file for details.
 
-Copyright (c) 2025 YiziView Contributors. All rights reserved.
+**Key Restrictions:**
+*   **Non-Commercial Use Only (不可商用)**: You may not use this software or its source code for any commercial purposes.
+*   **No Redistribution (禁止二次分发与倒卖)**: You may not sell or redistribute this software.
+*   **No Derivative Works for commercialization**: You may not modify and release this software as your own commercial product.
+
+Copyright (c) 2026 YiziView Contributors. All rights reserved.
