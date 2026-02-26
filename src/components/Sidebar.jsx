@@ -16,6 +16,7 @@ import {
     Filter,
     Trash2,
     Search,
+    Plus,
     Minus,
     Heart
 } from 'lucide-react';
