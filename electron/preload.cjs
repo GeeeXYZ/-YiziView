@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('electron', {
     getTagsForFiles: (filePaths) => ipcRenderer.invoke('get-tags-for-files', filePaths),
     readImageMetadata: (filePath) => ipcRenderer.invoke('read-image-metadata', filePath),
     getThumbnail: (filePath) => ipcRenderer.invoke('get-thumbnail', filePath),
+    cropImage: (imagePath, cropData) => ipcRenderer.invoke('crop-image', { imagePath, cropData }),
 
     // Settings
     clearThumbnailCache: () => ipcRenderer.invoke('clear-thumbnail-cache'),

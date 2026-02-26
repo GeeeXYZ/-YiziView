@@ -498,13 +498,42 @@ let saveExpandedTimeout = null;
 const saveExpandedFolders = () => {
   if (saveExpandedTimeout) clearTimeout(saveExpandedTimeout);
   saveExpandedTimeout = setTimeout(async () => {
-    try {
-      await fs.writeFile(expandedFoldersPath, JSON.stringify([...expandedFoldersCache], null, 2));
-    } catch (e) {
-      console.error('Failed to save expanded folders:', e);
-    }
   }, 1000); // Save after 1s of inactivity
 };
+
+// Crop Image
+ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
+  try {
+    const ext = path.extname(imagePath);
+    const basename = path.basename(imagePath, ext);
+    const dir = path.dirname(imagePath);
+    // Overwrite the existing file or save as a new file (e.g. "_crop")
+    const newPath = path.join(dir, `${basename}_crop${ext}`);
+
+    let pipeline = sharp(imagePath)
+      .extract({
+        left: Math.round(cropData.x),
+        top: Math.round(cropData.y),
+        width: Math.round(cropData.width),
+        height: Math.round(cropData.height)
+      });
+
+    if (cropData.targetWidth || cropData.targetHeight) {
+      pipeline = pipeline.resize({
+        width: cropData.targetWidth || null,
+        height: cropData.targetHeight || null,
+        fit: 'fill'
+      });
+    }
+
+    await pipeline.toFile(newPath);
+
+    return { success: true, path: newPath };
+  } catch (error) {
+    console.error('Failed to crop image:', error);
+    return { success: false, error: error.message };
+  }
+});
 
 ipcMain.handle('get-expanded-folders', async () => {
   await loadExpandedFolders();
