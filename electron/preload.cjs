@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld('electron', {
     getAutoUpdateSetting: () => ipcRenderer.invoke('get-auto-update-setting'),
     setAutoUpdateSetting: (enabled) => ipcRenderer.invoke('set-auto-update-setting', enabled),
     onUpdateStateChange: (callback) => {
-        const subscription = (event, ...args) => callback(event, ...args);
+        const subscription = (event, ...args) => callback(...args);
         ipcRenderer.on('auto-update-state', subscription);
         return () => ipcRenderer.removeListener('auto-update-state', subscription);
     },

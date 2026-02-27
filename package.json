@@ -1,7 +1,7 @@
 {
   "name": "yiziview",
   "private": true,
-  "version": "0.7.9",
+  "version": "0.7.10",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

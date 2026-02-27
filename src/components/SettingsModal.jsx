@@ -12,7 +12,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error
     const [updateMessage, setUpdateMessage] = useState('');
     const [downloadProgress, setDownloadProgress] = useState(0);
-    const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(true);
+    const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(false);
 
     useEffect(() => {
         if (window.electron?.getAutoUpdateSetting) {
@@ -27,7 +27,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 setUpdateMessage('Checking for updates...');
             } else if (state === 'update-available') {
                 setUpdateStatus('available');
-                setUpdateMessage('Update available! Downloading...');
+                setUpdateMessage('New update is available!');
             } else if (state === 'update-not-available') {
                 setUpdateStatus('idle');
                 setUpdateMessage('You are on the latest version.');
@@ -95,6 +95,18 @@ const SettingsModal = ({ isOpen, onClose }) => {
             setUpdateStatus('idle');
             setUpdateMessage('Update cancelled.');
             setTimeout(() => setUpdateMessage(''), 3000);
+        }
+    };
+
+    const handleDownloadUpdate = async () => {
+        setUpdateStatus('downloading');
+        setDownloadProgress(0);
+        setUpdateMessage('Downloading manual update...');
+        try {
+            await window.electron.downloadUpdate();
+        } catch (e) {
+            setUpdateStatus('error');
+            setUpdateMessage(`Download error: ${e.message}`);
         }
     };
 
@@ -232,78 +244,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         </div>
                     </div>
 
-                    {/* Cache Management */}
+                    {/* Performance & Storage */}
                     <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Cache Management</h3>
-                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                    <h4 className="text-white font-medium mb-1">Clear Thumbnail Cache</h4>
-                                    <p className="text-sm text-gray-400">
-                                        Remove all cached thumbnails. New thumbnails will be generated when needed.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={handleClearThumbnails}
-                                    disabled={clearing}
-                                    className="h-9 px-4 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 text-rose-400 border border-rose-500/20 rounded-lg flex items-center justify-center gap-2 transition-all shrink-0 min-w-[100px] text-sm font-medium"
-                                >
-                                    <Trash2 size={14} />
-                                    {clearing ? 'Clearing...' : 'Clear Cache'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Tag Management */}
-                    <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Tag Management</h3>
-
-                        {/* Export Tags */}
-                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                    <h4 className="text-white font-medium mb-1">Export Tags</h4>
-                                    <p className="text-sm text-gray-400">
-                                        Export all tags and file associations to a JSON file for backup or sharing.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={handleExportTags}
-                                    disabled={exporting}
-                                    className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center gap-2 transition-all shrink-0 min-w-[100px] text-sm font-medium"
-                                >
-                                    <Download size={14} />
-                                    {exporting ? 'Exporting...' : 'Export JSON'}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Import Tags */}
-                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                    <h4 className="text-white font-medium mb-1">Import Tags</h4>
-                                    <p className="text-sm text-gray-400">
-                                        Import tags from a previously exported JSON file. This will merge with existing tags.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={handleImportTags}
-                                    disabled={importing}
-                                    className="h-9 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-400 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 transition-all shrink-0 min-w-[100px] text-sm font-medium"
-                                >
-                                    <Upload size={14} />
-                                    {importing ? 'Importing...' : 'Import JSON'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Performance Settings */}
-                    <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Performance</h3>
-                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Performance & Storage</h3>
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700 space-y-4">
                             <div className="flex items-center justify-between gap-4">
                                 <div className="flex-1">
                                     <h4 className="text-white font-medium mb-1">Thumbnail Quality (Size)</h4>
@@ -325,6 +269,58 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                     <option value="800">800px (High)</option>
                                     <option value="1024">1024px (Ultra)</option>
                                 </select>
+                            </div>
+
+                            <hr className="border-neutral-700/50" />
+
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Clear Thumbnail Cache</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Remove all cached thumbnails to free up disk space. New thumbnails will be generated when needed.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleClearThumbnails}
+                                    disabled={clearing}
+                                    className="h-9 px-4 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 text-rose-400 border border-rose-500/20 rounded-lg flex items-center justify-center gap-2 transition-all shrink-0 min-w-[130px] text-sm font-medium"
+                                >
+                                    <Trash2 size={14} />
+                                    {clearing ? 'Clearing...' : 'Clear Cache'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tag Management */}
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Tagging System</h3>
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Backup & Restore Tags</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Export your library's tags to a JSON file or restore them to merge with your current tags.
+                                    </p>
+                                </div>
+                                <div className="flex flex-col gap-2 shrink-0 min-w-[130px]">
+                                    <button
+                                        onClick={handleExportTags}
+                                        disabled={exporting}
+                                        className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-medium"
+                                    >
+                                        <Download size={14} />
+                                        {exporting ? 'Exporting...' : 'Export Tags'}
+                                    </button>
+                                    <button
+                                        onClick={handleImportTags}
+                                        disabled={importing}
+                                        className="h-9 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-400 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-medium"
+                                    >
+                                        <Upload size={14} />
+                                        {importing ? 'Importing...' : 'Import Tags'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -356,7 +352,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                 <div className="text-sm text-gray-400 space-y-2 flex-1 relative">
                                     <div className="flex justify-between">
                                         <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.7.9</p>
+                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.7.10</p>
                                     </div>
 
                                     {updateMessage && (
@@ -389,15 +385,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                         >
                                             Cancel Download
                                         </button>
+                                    ) : updateStatus === 'available' ? (
+                                        <button
+                                            onClick={handleDownloadUpdate}
+                                            disabled={isAutoUpdateEnabled}
+                                            className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center transition-all text-sm font-medium"
+                                        >
+                                            {isAutoUpdateEnabled ? 'Starting Auto Download...' : 'Download Update'}
+                                        </button>
                                     ) : (
                                         <button
                                             onClick={handleCheckUpdate}
-                                            disabled={updateStatus === 'checking' || updateStatus === 'available'}
+                                            disabled={updateStatus === 'checking'}
                                             className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center transition-all text-sm font-medium"
                                         >
-                                            {updateStatus === 'checking' ? 'Checking...' :
-                                                updateStatus === 'available' ? 'Starting...' :
-                                                    'Check for Updates'}
+                                            {updateStatus === 'checking' ? 'Checking...' : 'Check for Updates'}
                                         </button>
                                     )}
                                 </div>

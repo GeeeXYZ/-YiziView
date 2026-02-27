@@ -22,7 +22,7 @@ autoUpdater.logger = {
 };
 
 // autoUpdater config
-let isAutoDownloadEnabled = true;
+let isAutoDownloadEnabled = false;
 try {
   // Use synchronous fs to load settings before app is fully ready
   const fsSync = require('fs');
@@ -30,13 +30,14 @@ try {
   if (fsSync.existsSync(storePath)) {
     const data = fsSync.readFileSync(storePath, 'utf8');
     const settings = JSON.parse(data);
-    isAutoDownloadEnabled = settings.autoDownload !== false;
+    isAutoDownloadEnabled = settings.autoDownload === true;
   }
 } catch (e) { }
-
 autoUpdater.autoDownload = isAutoDownloadEnabled;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.disableDifferentialDownload = true; // Fix for GitHub Releases Checksum mismatch
+autoUpdater.disableWebInstaller = true; // Fix warning
+autoUpdater.forceDevUpdateConfig = true; // Allow checking in dev mode
 
 const watchers = new Map(); // panelId -> watcher instance
 
@@ -98,7 +99,18 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Clear old update cache immediately on startup to prevent stale updates and checksum mismatches
+  try {
+    const { session } = require('electron');
+    await session.defaultSession.clearCache(); // prevent caching latest.yml HTTP requests
+    const updaterCacheDir = path.join(app.getPath('appData'), '../Local', 'yiziview-updater', 'pending');
+    await fs.rm(updaterCacheDir, { recursive: true, force: true });
+    console.log('[updater] Successfully cleared old updater temporary files and caches');
+  } catch (e) {
+    console.log('[updater] Clean up non-critical cache skipped:', e.message);
+  }
+
   // Register protocol for serving local files
   protocol.registerFileProtocol('media', (request, callback) => {
     let url = request.url.replace('media://local/', '');
@@ -216,9 +228,19 @@ const updaterEvents = [
 
 updaterEvents.forEach(eventName => {
   autoUpdater.on(eventName, (...args) => {
-    let data = args;
-    if (eventName === 'error' && args[0]) {
-      data = [args[0].message || args[0].toString()];
+    let data = [];
+    try {
+      if (eventName === 'error' && args[0]) {
+        data = [args[0].message || String(args[0])];
+      } else if (eventName === 'download-progress' && args[0]) {
+        data = [{ percent: args[0].percent || 0 }];
+      } else if (eventName === 'update-available' && args[0]) {
+        data = [{ version: args[0].version || 'unknown' }];
+      } else if (eventName === 'update-downloaded') {
+        data = []; // Do not pass Info to prevent IPC serialization fail
+      }
+    } catch (e) {
+      console.error('Error extracting updater event args', e);
     }
 
     currentUpdateState = { state: eventName, data };
