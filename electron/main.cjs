@@ -124,7 +124,7 @@ ipcMain.handle('check-for-updates', async () => {
     throw error;
   }
 });
-ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall(false, true));
 
 // Track the latest state to provide to frontend when requested
 let currentUpdateState = { state: 'idle', data: [] };
