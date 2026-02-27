@@ -16,6 +16,14 @@ function App() {
 
   useEffect(() => {
     if (!window.electron?.onUpdateStateChange) return;
+
+    // Fetch initial state
+    window.electron.getUpdateState && window.electron.getUpdateState().then(initialState => {
+      if (initialState && (initialState.state === 'update-available' || initialState.state === 'update-downloaded')) {
+        setHasUpdate(true);
+      }
+    });
+
     const unsubscribe = window.electron.onUpdateStateChange((payload) => {
       const { state } = payload;
       if (state === 'update-available' || state === 'update-downloaded') {

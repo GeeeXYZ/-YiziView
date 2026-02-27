@@ -16,7 +16,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     useEffect(() => {
         if (!window.electron?.onUpdateStateChange) return;
 
-        const unsubscribe = window.electron.onUpdateStateChange((payload) => {
+        const updateStateFromPayload = (payload) => {
             const { state, data } = payload;
             if (state === 'checking-for-update') {
                 setUpdateStatus('checking');
@@ -40,7 +40,16 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 setUpdateStatus('downloaded');
                 setUpdateMessage('Update ready to install!');
             }
+        };
+
+        // Fetch initial state
+        window.electron.getUpdateState && window.electron.getUpdateState().then(initialState => {
+            if (initialState && initialState.state !== 'idle') {
+                updateStateFromPayload(initialState);
+            }
         });
+
+        const unsubscribe = window.electron.onUpdateStateChange(updateStateFromPayload);
 
         return () => unsubscribe();
     }, []);
@@ -50,10 +59,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
         setUpdateStatus('checking');
         setUpdateMessage('Checking for updates...');
         try {
-            await window.electron.checkForUpdates();
+            const result = await window.electron.checkForUpdates();
+            // If result is null, either it was already up to date, or already downloaded.
+            // If it returns, the events might not fire if it's cached, so we'll check the global state.
+            if (window.electron.getUpdateState) {
+                const currentState = await window.electron.getUpdateState();
+                // Only reset if it's not a terminal active state
+                if (currentState && currentState.state === 'idle') {
+                    setUpdateStatus('idle');
+                    setUpdateMessage(result ? 'Finished check.' : 'No update needed right now.');
+                    setTimeout(() => setUpdateMessage(''), 3000);
+                }
+            }
         } catch (e) {
             setUpdateStatus('error');
-            setUpdateMessage('Failed to check for updates.');
+            setUpdateMessage('Failed to check for updates. Make sure you are connected or running the packaged app.');
         }
     };
 

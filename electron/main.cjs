@@ -116,8 +116,19 @@ app.on('window-all-closed', () => {
 // IPC Handlers
 ipcMain.handle('ping', () => 'pong');
 
-ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates());
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return result ? { hasUpdate: true, version: result.updateInfo?.version } : null;
+  } catch (error) {
+    throw error;
+  }
+});
 ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+
+// Track the latest state to provide to frontend when requested
+let currentUpdateState = { state: 'idle', data: [] };
+ipcMain.handle('get-update-state', () => currentUpdateState);
 
 // Forward auto-updater events to the renderer
 const updaterEvents = [
@@ -131,12 +142,15 @@ const updaterEvents = [
 
 updaterEvents.forEach(eventName => {
   autoUpdater.on(eventName, (...args) => {
+    let data = args;
+    if (eventName === 'error' && args[0]) {
+      data = [args[0].message || args[0].toString()];
+    }
+
+    currentUpdateState = { state: eventName, data };
+
     if (mainWindow && !mainWindow.isDestroyed()) {
-      let data = args;
-      if (eventName === 'error' && args[0]) {
-        data = [args[0].message || args[0].toString()];
-      }
-      mainWindow.webContents.send('auto-update-state', { state: eventName, data });
+      mainWindow.webContents.send('auto-update-state', currentUpdateState);
     }
   });
 });

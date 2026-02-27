@@ -79,6 +79,7 @@ contextBridge.exposeInMainWorld('electron', {
     // Auto Updater
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     installUpdate: () => ipcRenderer.invoke('install-update'),
+    getUpdateState: () => ipcRenderer.invoke('get-update-state'),
     onUpdateStateChange: (callback) => {
         const subscription = (event, ...args) => callback(event, ...args);
         ipcRenderer.on('auto-update-state', subscription);
