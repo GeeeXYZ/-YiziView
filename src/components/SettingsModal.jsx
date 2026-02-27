@@ -12,8 +12,12 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error
     const [updateMessage, setUpdateMessage] = useState('');
     const [downloadProgress, setDownloadProgress] = useState(0);
+    const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(true);
 
     useEffect(() => {
+        if (window.electron?.getAutoUpdateSetting) {
+            window.electron.getAutoUpdateSetting().then(setIsAutoUpdateEnabled);
+        }
         if (!window.electron?.onUpdateStateChange) return;
 
         const updateStateFromPayload = (payload) => {
@@ -83,6 +87,25 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
     const handleInstallUpdate = () => {
         window.electron.installUpdate();
+    };
+
+    const handleCancelUpdate = async () => {
+        if (window.electron?.cancelUpdate) {
+            await window.electron.cancelUpdate();
+            setUpdateStatus('idle');
+            setUpdateMessage('Update cancelled.');
+            setTimeout(() => setUpdateMessage(''), 3000);
+        }
+    };
+
+    const handleToggleAutoUpdate = async () => {
+        const newValue = !isAutoUpdateEnabled;
+        if (window.electron?.setAutoUpdateSetting) {
+            const success = await window.electron.setAutoUpdateSetting(newValue);
+            if (success) {
+                setIsAutoUpdateEnabled(newValue);
+            }
+        }
     };
 
     if (!isOpen) return null;
@@ -309,34 +332,71 @@ const SettingsModal = ({ isOpen, onClose }) => {
                     {/* App Info & Updates */}
                     <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">About & Updates</h3>
-                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700 space-y-4">
+
+                            {/* Auto Update Setting */}
+                            <div className="flex items-center justify-between pb-4 border-b border-neutral-700/50">
+                                <div>
+                                    <h4 className="text-sm font-medium text-gray-200">Auto Download Updates</h4>
+                                    <p className="text-xs text-gray-400 mt-1">Automatically download updates in the background when available</p>
+                                </div>
+                                <button
+                                    onClick={handleToggleAutoUpdate}
+                                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-neutral-900 ${isAutoUpdateEnabled ? 'bg-blue-600' : 'bg-neutral-600'
+                                        }`}
+                                >
+                                    <span
+                                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isAutoUpdateEnabled ? 'translate-x-2' : '-translate-x-2'
+                                            }`}
+                                    />
+                                </button>
+                            </div>
+
                             <div className="flex items-start justify-between gap-4">
-                                <div className="text-sm text-gray-400 space-y-1 flex-1">
-                                    <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                    <p><span className="text-gray-300 font-medium">Version:</span> 0.7.7</p>
+                                <div className="text-sm text-gray-400 space-y-2 flex-1 relative">
+                                    <div className="flex justify-between">
+                                        <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
+                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.7.8</p>
+                                    </div>
 
                                     {updateMessage && (
-                                        <p className={`mt-2 text-xs font-medium ${updateStatus === 'error' ? 'text-red-400' : 'text-blue-400'}`}>
-                                            {updateMessage} {updateStatus === 'downloading' && `(${downloadProgress}%)`}
+                                        <p className={`text-xs font-medium ${updateStatus === 'error' ? 'text-red-400' : 'text-blue-400'}`}>
+                                            {updateMessage}
                                         </p>
+                                    )}
+
+                                    {updateStatus === 'downloading' && (
+                                        <div className="w-full bg-neutral-700/50 rounded-full h-1.5 mt-2 overflow-hidden shadow-inner">
+                                            <div
+                                                className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+                                                style={{ width: `${downloadProgress}%` }}
+                                            />
+                                        </div>
                                     )}
                                 </div>
                                 <div className="flex flex-col gap-2 shrink-0 min-w-[120px]">
                                     {updateStatus === 'downloaded' ? (
                                         <button
                                             onClick={handleInstallUpdate}
-                                            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center justify-center transition-all text-sm font-medium"
+                                            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center justify-center transition-all text-sm font-medium shadow-md shadow-emerald-900/20"
                                         >
                                             Restart to Install
+                                        </button>
+                                    ) : updateStatus === 'downloading' ? (
+                                        <button
+                                            onClick={handleCancelUpdate}
+                                            className="h-9 px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg flex items-center justify-center transition-all text-sm font-medium"
+                                        >
+                                            Cancel Download
                                         </button>
                                     ) : (
                                         <button
                                             onClick={handleCheckUpdate}
-                                            disabled={updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'available'}
+                                            disabled={updateStatus === 'checking' || updateStatus === 'available'}
                                             className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center transition-all text-sm font-medium"
                                         >
                                             {updateStatus === 'checking' ? 'Checking...' :
-                                                updateStatus === 'downloading' || updateStatus === 'available' ? 'Downloading...' :
+                                                updateStatus === 'available' ? 'Starting...' :
                                                     'Check for Updates'}
                                         </button>
                                     )}

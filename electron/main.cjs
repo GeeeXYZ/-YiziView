@@ -15,15 +15,28 @@ const { autoUpdater } = require('electron-updater');
 
 // Setup detailed updater logging to stdout
 autoUpdater.logger = {
-  info(msg) { console.log('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'INFO: ' + msg); },
-  warn(msg) { console.warn('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'WARN: ' + msg); },
-  error(msg) { console.error('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'ERROR: ' + msg); },
-  debug(msg) { console.debug('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'DEBUG: ' + msg); }
+  info(msg) { console.log('[updater]', msg); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater-log', 'INFO: ' + msg); },
+  warn(msg) { console.warn('[updater]', msg); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater-log', 'WARN: ' + msg); },
+  error(msg) { console.error('[updater]', msg); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater-log', 'ERROR: ' + msg); },
+  debug(msg) { console.debug('[updater]', msg); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updater-log', 'DEBUG: ' + msg); }
 };
 
 // autoUpdater config
-autoUpdater.autoDownload = true;
+let isAutoDownloadEnabled = true;
+try {
+  // Use synchronous fs to load settings before app is fully ready
+  const fsSync = require('fs');
+  const storePath = path.join(app.getPath('userData'), 'update-settings.json');
+  if (fsSync.existsSync(storePath)) {
+    const data = fsSync.readFileSync(storePath, 'utf8');
+    const settings = JSON.parse(data);
+    isAutoDownloadEnabled = settings.autoDownload !== false;
+  }
+} catch (e) { }
+
+autoUpdater.autoDownload = isAutoDownloadEnabled;
 autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.disableDifferentialDownload = true; // Fix for GitHub Releases Checksum mismatch
 
 const watchers = new Map(); // panelId -> watcher instance
 
@@ -147,6 +160,45 @@ ipcMain.handle('check-for-updates', async () => {
   }
 });
 ipcMain.handle('install-update', () => autoUpdater.quitAndInstall(false, true));
+
+let cancellationToken = null;
+ipcMain.handle('download-update', async () => {
+  try {
+    const CancellationToken = require('builder-util-runtime').CancellationToken;
+    cancellationToken = new CancellationToken();
+    await autoUpdater.downloadUpdate(cancellationToken);
+    return true;
+  } catch (e) {
+    throw new Error(e.message || String(e));
+  }
+});
+
+ipcMain.handle('cancel-update', () => {
+  if (cancellationToken) {
+    cancellationToken.cancel();
+    cancellationToken = null;
+    // Reset state
+    currentUpdateState = { state: 'idle', data: [] };
+    if (mainWindow) {
+      mainWindow.webContents.send('auto-update-state', currentUpdateState);
+    }
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('get-auto-update-setting', () => isAutoDownloadEnabled);
+ipcMain.handle('set-auto-update-setting', async (event, enabled) => {
+  isAutoDownloadEnabled = enabled;
+  autoUpdater.autoDownload = enabled;
+  try {
+    const storePath = path.join(app.getPath('userData'), 'update-settings.json');
+    await fs.writeFile(storePath, JSON.stringify({ autoDownload: enabled }));
+    return true;
+  } catch (e) {
+    return false;
+  }
+});
 
 // Track the latest state to provide to frontend when requested
 let currentUpdateState = { state: 'idle', data: [] };
