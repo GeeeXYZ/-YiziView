@@ -84,5 +84,10 @@ contextBridge.exposeInMainWorld('electron', {
         const subscription = (event, ...args) => callback(event, ...args);
         ipcRenderer.on('auto-update-state', subscription);
         return () => ipcRenderer.removeListener('auto-update-state', subscription);
+    },
+    onUpdaterLog: (callback) => {
+        const subscription = (event, msg) => callback(msg);
+        ipcRenderer.on('updater-log', subscription);
+        return () => ipcRenderer.removeListener('updater-log', subscription);
     }
 });

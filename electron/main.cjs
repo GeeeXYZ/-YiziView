@@ -12,6 +12,15 @@ try {
 }
 
 const { autoUpdater } = require('electron-updater');
+
+// Setup detailed updater logging to stdout
+autoUpdater.logger = {
+  info(msg) { console.log('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'INFO: ' + msg); },
+  warn(msg) { console.warn('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'WARN: ' + msg); },
+  error(msg) { console.error('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'ERROR: ' + msg); },
+  debug(msg) { console.debug('[updater]', msg); if (mainWindow) mainWindow.webContents.send('updater-log', 'DEBUG: ' + msg); }
+};
+
 // autoUpdater config
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -66,6 +75,14 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // Enable F12 to open DevTools globally
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -118,10 +135,15 @@ ipcMain.handle('ping', () => 'pong');
 
 ipcMain.handle('check-for-updates', async () => {
   try {
-    const result = await autoUpdater.checkForUpdates();
+    const checkPromise = autoUpdater.checkForUpdates();
+    const result = await Promise.race([
+      checkPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Update check timed out after 20 seconds. Network issue?')), 20000))
+    ]);
     return result ? { hasUpdate: true, version: result.updateInfo?.version } : null;
   } catch (error) {
-    throw error;
+    // Return a safe string error to avoid IPC serialization failures
+    throw new Error(error.message || String(error));
   }
 });
 ipcMain.handle('install-update', () => autoUpdater.quitAndInstall(false, true));
