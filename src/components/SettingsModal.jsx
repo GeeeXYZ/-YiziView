@@ -309,7 +309,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             <div className="flex items-start justify-between gap-4">
                                 <div className="text-sm text-gray-400 space-y-1 flex-1">
                                     <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                    <p><span className="text-gray-300 font-medium">Version:</span> 0.7.4</p>
+                                    <p><span className="text-gray-300 font-medium">Version:</span> 0.7.5</p>
 
                                     {updateMessage && (
                                         <p className={`mt-2 text-xs font-medium ${updateStatus === 'error' ? 'text-red-400' : 'text-blue-400'}`}>
