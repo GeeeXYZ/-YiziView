@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Trash2, Download, Upload, Settings as SettingsIcon } from 'lucide-react';
 
 const SettingsModal = ({ isOpen, onClose }) => {
@@ -6,6 +6,60 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(() => localStorage.getItem('settings_confirm_delete') !== 'false');
+    const [cropOverwrite, setCropOverwrite] = useState(() => localStorage.getItem('settings_crop_overwrite') === 'true');
+
+    // Auto-update state
+    const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error
+    const [updateMessage, setUpdateMessage] = useState('');
+    const [downloadProgress, setDownloadProgress] = useState(0);
+
+    useEffect(() => {
+        if (!window.electron?.onUpdateStateChange) return;
+
+        const unsubscribe = window.electron.onUpdateStateChange((payload) => {
+            const { state, data } = payload;
+            if (state === 'checking-for-update') {
+                setUpdateStatus('checking');
+                setUpdateMessage('Checking for updates...');
+            } else if (state === 'update-available') {
+                setUpdateStatus('available');
+                setUpdateMessage('Update available! Downloading...');
+            } else if (state === 'update-not-available') {
+                setUpdateStatus('idle');
+                setUpdateMessage('You are on the latest version.');
+                setTimeout(() => setUpdateMessage(''), 3000);
+            } else if (state === 'error') {
+                setUpdateStatus('error');
+                setUpdateMessage(`Update error: ${data[0]}`);
+            } else if (state === 'download-progress') {
+                setUpdateStatus('downloading');
+                if (data[0] && data[0].percent) {
+                    setDownloadProgress(Math.round(data[0].percent));
+                }
+            } else if (state === 'update-downloaded') {
+                setUpdateStatus('downloaded');
+                setUpdateMessage('Update ready to install!');
+            }
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const handleCheckUpdate = async () => {
+        if (updateStatus === 'checking' || updateStatus === 'downloading') return;
+        setUpdateStatus('checking');
+        setUpdateMessage('Checking for updates...');
+        try {
+            await window.electron.checkForUpdates();
+        } catch (e) {
+            setUpdateStatus('error');
+            setUpdateMessage('Failed to check for updates.');
+        }
+    };
+
+    const handleInstallUpdate = () => {
+        window.electron.installUpdate();
+    };
 
     if (!isOpen) return null;
 
@@ -102,6 +156,31 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${confirmDelete ? 'translate-x-6' : 'translate-x-1'}`}
                                     />
                                 </button>
+                            </div>
+
+                            <hr className="border-neutral-700/50" />
+
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Default Crop Save Action</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Select the default behavior when pressing Enter to save a crop.
+                                    </p>
+                                </div>
+                                <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
+                                    <button
+                                        onClick={() => { setCropOverwrite(false); localStorage.setItem('settings_crop_overwrite', 'false'); }}
+                                        className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${!cropOverwrite ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        Save as Copy
+                                    </button>
+                                    <button
+                                        onClick={() => { setCropOverwrite(true); localStorage.setItem('settings_crop_overwrite', 'true'); }}
+                                        className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${cropOverwrite ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        Overwrite
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -203,14 +282,41 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         </div>
                     </div>
 
-                    {/* App Info */}
+                    {/* App Info & Updates */}
                     <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">About</h3>
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">About & Updates</h3>
                         <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
-                            <div className="text-sm text-gray-400 space-y-1">
-                                <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                <p><span className="text-gray-300 font-medium">Version:</span> 0.4.0</p>
-                                <p><span className="text-gray-300 font-medium">Description:</span> Multi-panel image viewer with tag management</p>
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="text-sm text-gray-400 space-y-1 flex-1">
+                                    <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
+                                    <p><span className="text-gray-300 font-medium">Version:</span> 0.7.1</p>
+
+                                    {updateMessage && (
+                                        <p className={`mt-2 text-xs font-medium ${updateStatus === 'error' ? 'text-red-400' : 'text-blue-400'}`}>
+                                            {updateMessage} {updateStatus === 'downloading' && `(${downloadProgress}%)`}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-2 shrink-0 min-w-[120px]">
+                                    {updateStatus === 'downloaded' ? (
+                                        <button
+                                            onClick={handleInstallUpdate}
+                                            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center justify-center transition-all text-sm font-medium"
+                                        >
+                                            Restart to Install
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={handleCheckUpdate}
+                                            disabled={updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'available'}
+                                            className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center transition-all text-sm font-medium"
+                                        >
+                                            {updateStatus === 'checking' ? 'Checking...' :
+                                                updateStatus === 'downloading' || updateStatus === 'available' ? 'Downloading...' :
+                                                    'Check for Updates'}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>

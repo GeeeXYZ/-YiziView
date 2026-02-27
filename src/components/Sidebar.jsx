@@ -42,9 +42,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
     const [confirmModal, setConfirmModal] = useState(null);
     const [dragOverTag, setDragOverTag] = useState(null);
 
-    // Resize State
-    const [foldersHeight, setFoldersHeight] = useState(200); // Initial height for folders section
-    const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = React.useRef(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -81,37 +78,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
             window.removeEventListener('folder-tree-refresh', handleFolderTreeRefresh);
         };
     }, []);
-
-    // Resize Logic
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (!isResizing || !sidebarRef.current) return;
-
-            // Get sidebar bounding rect to calculate relative position
-            const rect = sidebarRef.current.getBoundingClientRect();
-            const relativeY = e.clientY - rect.top;
-
-            // Calculate new height based on relative Y
-            const newHeight = Math.max(100, Math.min(relativeY, rect.height - 100));
-            setFoldersHeight(newHeight);
-        };
-
-        const handleMouseUp = () => {
-            setIsResizing(false);
-            document.body.style.cursor = 'default';
-        };
-
-        if (isResizing) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = 'row-resize';
-        }
-
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
-    }, [isResizing]);
 
     const loadFavorites = async () => {
         const favs = await ConfigManager.loadFavorites();
@@ -325,8 +291,8 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
 
                     {/* Top Section: Folders (Quick Access) */}
                     <div
-                        className="overflow-y-auto px-2 scrollbar-thin scrollbar-thumb-neutral-700"
-                        style={{ height: foldersHeight, minHeight: 100 }}
+                        className="overflow-y-auto px-2 scrollbar-thin scrollbar-thumb-neutral-700 shrink-0 transition-all duration-300"
+                        style={{ maxHeight: 'calc(100% - 250px)' }}
                     >
                         <div className="mt-4 mb-2 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between group items-center">
                             <span className="flex items-center gap-1"><Star size={12} className="text-yellow-500" /> Quick Access</span>
@@ -397,14 +363,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                                 </div>
                             )}
                         </div>
-                    </div>
-
-                    {/* Resizer Handle */}
-                    <div
-                        className="h-4 -my-2 flex items-center justify-center cursor-row-resize shrink-0 z-10 hover:bg-neutral-700/30 transition-colors mx-2"
-                        onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
-                    >
-                        <div className="w-full h-[1px] bg-neutral-700" />
                     </div>
 
                     {/* Fav Images Button */}

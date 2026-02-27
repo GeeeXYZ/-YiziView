@@ -1,7 +1,7 @@
 {
   "name": "yiziview",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -14,6 +14,13 @@
   },
   "build": {
     "appId": "com.yiziview.app",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "GeeeXYZ",
+        "repo": "-YiziView"
+      }
+    ],
     "productName": "YiziView",
     "files": [
       "dist/**/*",
@@ -47,6 +54,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "chokidar": "^5.0.0",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

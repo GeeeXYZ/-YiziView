@@ -18,7 +18,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [isSavingCrop, setIsSavingCrop] = useState(false);
     const [targetW, setTargetW] = useState('');
     const [targetH, setTargetH] = useState('');
+    const [forceImageUrl, setForceImageUrl] = useState(null);
     const imgRef = useRef(null);
+    const percentCropRef = useRef(null);
 
     const dragStartRef = useRef({ x: 0, y: 0 });
     const onNextRef = useRef(onNext);
@@ -103,6 +105,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setCompletedCrop(null);
         setTargetW('');
         setTargetH('');
+        setForceImageUrl(null);
     }, [image]);
 
     // Zoom Handler
@@ -172,19 +175,34 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setIsCropping(true);
         setZoom(1);
         setPosition({ x: 0, y: 0 });
-        setAspect(undefined);
-        setCrop({
+        const savedAspect = localStorage.getItem('last_crop_aspect');
+        const savedTargetW = localStorage.getItem('last_crop_target_w') || '';
+        const savedTargetH = localStorage.getItem('last_crop_target_h') || '';
+
+        setAspect(savedAspect ? parseFloat(savedAspect) : undefined);
+        setTargetW(savedTargetW);
+        setTargetH(savedTargetH);
+
+        const initialCrop = {
             unit: '%',
             width: 100,
             height: 100,
             x: 0,
             y: 0
-        });
+        };
+
+        setCrop(initialCrop);
         setCompletedCrop(null);
+        percentCropRef.current = initialCrop;
     };
 
     const handleAspectChange = (newAspect) => {
         setAspect(newAspect);
+        if (newAspect) {
+            localStorage.setItem('last_crop_aspect', newAspect.toString());
+        } else {
+            localStorage.removeItem('last_crop_aspect');
+        }
 
         if (newAspect) {
             const w = parseInt(targetW);
@@ -211,8 +229,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     width,
                     height
                 );
-                setCrop(newCrop);
+
+                // Convert back to percentage crop for robust resizing and backend matching
+                const newPercentCrop = {
+                    unit: '%',
+                    x: (newCrop.x / width) * 100,
+                    y: (newCrop.y / height) * 100,
+                    width: (newCrop.width / width) * 100,
+                    height: (newCrop.height / height) * 100
+                };
+
+                setCrop(newPercentCrop);
                 setCompletedCrop(newCrop); // immediately update completed crop so inputs sync
+                percentCropRef.current = newPercentCrop;
             }
             // If newAspect is undefined, we simply unlock, leaving current crop as is.
         }
@@ -221,32 +250,50 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const handleTargetWChange = (e) => {
         const val = e.target.value;
         setTargetW(val);
+        localStorage.setItem('last_crop_target_w', val);
         const w = parseInt(val);
         if (!isNaN(w) && w > 0) {
             if (aspect) {
-                setTargetH(Math.round(w / aspect).toString());
+                const newH = Math.round(w / aspect).toString();
+                setTargetH(newH);
+                localStorage.setItem('last_crop_target_h', newH);
             } else {
                 const h = parseInt(targetH);
                 if (!isNaN(h) && h > 0) {
                     handleAspectChange(w / h);
                 }
             }
+        } else if (val === '') {
+            localStorage.removeItem('last_crop_target_w');
         }
     };
 
     const handleTargetHChange = (e) => {
         const val = e.target.value;
         setTargetH(val);
+        localStorage.setItem('last_crop_target_h', val);
         const h = parseInt(val);
         if (!isNaN(h) && h > 0) {
             if (aspect) {
-                setTargetW(Math.round(h * aspect).toString());
+                const newW = Math.round(h * aspect).toString();
+                setTargetW(newW);
+                localStorage.setItem('last_crop_target_w', newW);
             } else {
                 const w = parseInt(targetW);
                 if (!isNaN(w) && w > 0) {
                     handleAspectChange(w / h);
                 }
             }
+        } else if (val === '') {
+            localStorage.removeItem('last_crop_target_h');
+        }
+    };
+
+    const handleCropKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const overwriteCurrent = localStorage.getItem('settings_crop_overwrite') === 'true';
+            saveCrop(e, overwriteCurrent);
         }
     };
 
@@ -255,33 +302,65 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setIsCropping(false);
     };
 
-    const saveCrop = async (e) => {
+    const saveCrop = async (e, overwrite = false) => {
         e.stopPropagation();
-        if (!completedCrop || completedCrop.width <= 0 || completedCrop.height <= 0) {
-            cancelCrop();
+        if (!imgRef.current) return;
+
+        let activePercentCrop = percentCropRef.current;
+
+        // If no user drag happened, fallback to full image bounds
+        if (!activePercentCrop) {
+            activePercentCrop = {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100
+            };
+        }
+
+        if (activePercentCrop.width <= 0 || activePercentCrop.height <= 0) {
+            cancelCrop(e);
             return;
         }
 
-        if (!imgRef.current) return;
+        // We map the raw percentage crop dimensions directly mapped to natural image size.
+        // This makes the extraction immune to CSS object-fit/letterboxing subpixel offsets.
+        const natW = imgRef.current.naturalWidth;
+        const natH = imgRef.current.naturalHeight;
 
-        // the crop library gives us completedCrop in absolute pixel values that relative to the scaled CSS display size.
-        // We must map these CSS pixels to the natural native pixels of the original image to send to backend.
-        const scaleX = imgRef.current.naturalWidth / imgRef.current.width;
-        const scaleY = imgRef.current.naturalHeight / imgRef.current.height;
+        let cx = Math.max(0, Math.round((activePercentCrop.x / 100) * natW));
+        let cy = Math.max(0, Math.round((activePercentCrop.y / 100) * natH));
+        let cw = Math.round((activePercentCrop.width / 100) * natW);
+        let ch = Math.round((activePercentCrop.height / 100) * natH);
+
+        // Strict clamp to prevent Sharp out-of-bounds error
+        if (cx + cw > natW) cw = natW - cx;
+        if (cy + ch > natH) ch = natH - cy;
 
         const cropData = {
-            x: Math.round(completedCrop.x * scaleX),
-            y: Math.round(completedCrop.y * scaleY),
-            width: Math.round(completedCrop.width * scaleX),
-            height: Math.round(completedCrop.height * scaleY),
+            x: cx,
+            y: cy,
+            width: cw,
+            height: ch,
             targetWidth: parseInt(targetW) || null,
-            targetHeight: parseInt(targetH) || null
+            targetHeight: parseInt(targetH) || null,
+            overwrite: overwrite
         };
 
         setIsSavingCrop(true);
         try {
             const result = await window.electron.cropImage(image.path, cropData);
             if (result.success) {
+                if (overwrite) {
+                    // Force the image source to reload bypassing browser cache for the overwritten file.
+                    // Must include 'local/' to match protocol registration
+                    setForceImageUrl(`media://local/${encodeURIComponent(image.path)}?t=${result.timestamp || Date.now()}`);
+
+                    // Dispatch event so that Thumbnails in the grid background also reload
+                    window.dispatchEvent(new CustomEvent('image-updated', {
+                        detail: { path: image.path, timestamp: result.timestamp || Date.now() }
+                    }));
+                }
                 cancelCrop(e);
             } else {
                 alert('Crop Failed: ' + result.error);
@@ -300,8 +379,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
     return (
         <div
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
+            className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
             onClick={onClose} // Click backdrop to close
+            onKeyDown={isCropping ? handleCropKeyDown : undefined}
+            tabIndex={-1}
         >
             {/* Top Bar Controls */}
             <div className="absolute top-6 left-6 flex gap-2 z-[60] no-drag">
@@ -360,7 +441,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             >
                 {isVideo ? (
                     <video
-                        src={image.url}
+                        src={forceImageUrl || image.url}
                         controls
                         autoPlay
                         className="w-full h-full object-contain pointer-events-auto"
@@ -378,33 +459,39 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         {isCropping ? (
                             <ReactCrop
                                 crop={crop}
-                                onChange={(_, percentCrop) => setCrop(percentCrop)}
-                                onComplete={(c) => setCompletedCrop(c)}
+                                onChange={(c) => setCrop(c)}
+                                onComplete={(c, percentCrop) => {
+                                    setCompletedCrop(c);
+                                    percentCropRef.current = percentCrop;
+                                }}
                                 aspect={aspect}
-                                style={{ display: 'flex' }}
+                                style={{ display: 'flex', maxWidth: '100%', maxHeight: '100%' }}
                             >
                                 <img
                                     ref={imgRef}
-                                    src={image.url}
+                                    src={forceImageUrl || image.url}
                                     alt={image.name}
-                                    style={{ maxHeight: 'calc(100vh - 8rem)', maxWidth: 'calc(100vw - 8rem)', objectFit: 'contain' }}
-                                    className="select-none"
+                                    // Removed objectFit: 'contain' to ensure bounding box perfectly wraps painted pixels
+                                    style={{ maxHeight: 'calc(100vh - 12rem)', maxWidth: 'calc(100vw - 4rem)' }}
+                                    className="select-none block"
                                     onLoad={(e) => {
                                         // Auto-generate full-size bounding box initially 
-                                        setCrop({
+                                        const initialCrop = {
                                             unit: '%',
                                             width: 100,
                                             height: 100,
                                             x: 0,
                                             y: 0
-                                        });
+                                        };
+                                        setCrop(initialCrop);
+                                        percentCropRef.current = initialCrop;
                                     }}
                                 />
                             </ReactCrop>
                         ) : (
                             <img
                                 ref={imgRef}
-                                src={image.url}
+                                src={forceImageUrl || image.url}
                                 alt={image.name}
                                 className="w-full h-full object-contain select-none"
                             />
@@ -428,21 +515,24 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         <div className="w-px h-4 bg-neutral-700 mx-1 hidden md:block"></div>
                         <div className="flex items-center gap-1">
                             <span className="text-gray-400 text-xs hidden md:inline ml-1">Export Size:</span>
-                            <input type="number" value={targetW} onChange={handleTargetWChange} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
+                            <input type="number" value={targetW} onChange={handleTargetWChange} onKeyDown={handleCropKeyDown} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
                             <span className="text-gray-500 text-xs">x</span>
-                            <input type="number" value={targetH} onChange={handleTargetHChange} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" title={aspect ? "Height is locked by Aspect Ratio" : "Height"} />
+                            <input type="number" value={targetH} onChange={handleTargetHChange} onKeyDown={handleCropKeyDown} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" title={aspect ? "Height is locked by Aspect Ratio" : "Height"} />
                             <span className="text-gray-500 text-xs ml-1">px</span>
                         </div>
                     </div>
                     {/* Action Row */}
-                    <div className="flex items-center justify-center gap-3 pt-1 px-2">
+                    <div className="flex items-center justify-center gap-2 pt-1 px-2">
                         <span className="text-gray-400 text-xs px-2 whitespace-nowrap hidden md:inline">Drag inwards to crop</span>
-                        <div className="w-px h-4 bg-neutral-700 hidden md:block"></div>
+                        <div className="w-px h-4 bg-neutral-700 hidden md:block mr-2"></div>
                         <button onClick={cancelCrop} disabled={isSavingCrop} className="px-3 py-1.5 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm">
                             <XIcon size={14} /> Cancel
                         </button>
-                        <button onClick={saveCrop} disabled={isSavingCrop || !completedCrop} className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-gray-500 text-white transition-colors flex items-center gap-1 text-sm">
-                            <Check size={14} /> {isSavingCrop ? 'Saving...' : 'Save Crop'}
+                        <button onClick={(e) => saveCrop(e, false)} disabled={isSavingCrop} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
+                            <Check size={14} /> {isSavingCrop && localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'Saving...' : 'Save Copy'}
+                        </button>
+                        <button onClick={(e) => saveCrop(e, true)} disabled={isSavingCrop} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') === 'true' ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
+                            <Check size={14} /> {isSavingCrop && localStorage.getItem('settings_crop_overwrite') === 'true' ? 'Saving...' : 'Overwrite'}
                         </button>
                     </div>
                 </div>

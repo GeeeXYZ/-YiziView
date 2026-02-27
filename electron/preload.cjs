@@ -75,4 +75,13 @@ contextBridge.exposeInMainWorld('electron', {
     // Utils
     getDirname: (p) => ipcRenderer.invoke('get-dirname', p),
     getBasename: (p) => ipcRenderer.invoke('get-basename', p),
+
+    // Auto Updater
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    installUpdate: () => ipcRenderer.invoke('install-update'),
+    onUpdateStateChange: (callback) => {
+        const subscription = (event, ...args) => callback(event, ...args);
+        ipcRenderer.on('auto-update-state', subscription);
+        return () => ipcRenderer.removeListener('auto-update-state', subscription);
+    }
 });

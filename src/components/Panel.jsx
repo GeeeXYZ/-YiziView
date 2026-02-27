@@ -164,7 +164,7 @@ const Panel = ({
 
                     {/* Viewer */}
                     {viewingIndex !== null && (
-                        <div className="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center">
+                        <div className="fixed inset-0 bg-black z-[200] flex flex-col items-center justify-center">
                             <ImageViewer
                                 image={images[viewingIndex]}
                                 onClose={() => setViewingIndex(null)}

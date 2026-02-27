@@ -26,6 +26,25 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
     }, []);
 
     useEffect(() => {
+        const handleImageUpdated = (e) => {
+            if (e.detail && e.detail.path === path) {
+                // If the thumbnail is currently loaded, forcefully append timestamp to break cache
+                if (thumbSrc) {
+                    setThumbSrc(prev => {
+                        if (!prev) return prev;
+                        // Strip old query completely before appending new
+                        const base = prev.split('?')[0];
+                        return `${base}?t=${e.detail.timestamp}`;
+                    });
+                }
+            }
+        };
+
+        window.addEventListener('image-updated', handleImageUpdated);
+        return () => window.removeEventListener('image-updated', handleImageUpdated);
+    }, [path, thumbSrc]);
+
+    useEffect(() => {
         if (!isVisible) {
             // Unload to save VRAM when out of view
             setThumbSrc(null);

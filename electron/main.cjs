@@ -11,6 +11,11 @@ try {
   console.error('Failed to load sharp:', e);
 }
 
+const { autoUpdater } = require('electron-updater');
+// autoUpdater config
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
 const watchers = new Map(); // panelId -> watcher instance
 
 // Register media scheme as privileged
@@ -67,6 +72,18 @@ app.whenReady().then(() => {
   // Register protocol for serving local files
   protocol.registerFileProtocol('media', (request, callback) => {
     let url = request.url.replace('media://local/', '');
+    url = url.replace('media://', ''); // robust fallback
+
+    // Strip query strings or hash used for cache busting BEFORE decoding
+    const questionMarkIndex = url.indexOf('?');
+    if (questionMarkIndex !== -1) {
+      url = url.substring(0, questionMarkIndex);
+    }
+    const hashIndex = url.indexOf('#');
+    if (hashIndex !== -1) {
+      url = url.substring(0, hashIndex);
+    }
+
     url = decodeURIComponent(url);
 
     // Safety check just in case valid paths come through weirdly
@@ -83,6 +100,13 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Check for updates shortly after startup
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdatesAndNotify().catch(console.error);
+    }, 3000);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -91,6 +115,31 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('ping', () => 'pong');
+
+ipcMain.handle('check-for-updates', () => autoUpdater.checkForUpdates());
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+
+// Forward auto-updater events to the renderer
+const updaterEvents = [
+  'checking-for-update',
+  'update-available',
+  'update-not-available',
+  'error',
+  'download-progress',
+  'update-downloaded'
+];
+
+updaterEvents.forEach(eventName => {
+  autoUpdater.on(eventName, (...args) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      let data = args;
+      if (eventName === 'error' && args[0]) {
+        data = [args[0].message || args[0].toString()];
+      }
+      mainWindow.webContents.send('auto-update-state', { state: eventName, data });
+    }
+  });
+});
 
 ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -507,8 +556,11 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
     const ext = path.extname(imagePath);
     const basename = path.basename(imagePath, ext);
     const dir = path.dirname(imagePath);
-    // Overwrite the existing file or save as a new file (e.g. "_crop")
-    const newPath = path.join(dir, `${basename}_crop${ext}`);
+
+    // Always write to a temporary file first to avoid sharp lock errors
+    const tempPath = path.join(dir, `${basename}_temp_${Date.now()}${ext}`);
+    // Determine the final output path based on overwrite flag inside cropData
+    const finalPath = cropData.overwrite ? imagePath : path.join(dir, `${basename}_crop_${Date.now()}${ext}`);
 
     let pipeline = sharp(imagePath)
       .extract({
@@ -526,9 +578,32 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
       });
     }
 
-    await pipeline.toFile(newPath);
+    await pipeline.toFile(tempPath);
 
-    return { success: true, path: newPath };
+    // Replace the target file using fs.rename.
+    // If overwrite is true, this replaces the original file.
+    await fs.rename(tempPath, finalPath);
+
+    if (cropData.overwrite) {
+      try {
+        // Invalidate thumbnail cache for the overwritten file
+        const crypto = require('crypto');
+        const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+        const hash = crypto.createHash('md5').update(finalPath).digest('hex');
+
+        // Delete all sizes for this hash
+        const files = await fs.readdir(cacheDir);
+        for (const file of files) {
+          if (file.startsWith(hash)) {
+            await fs.unlink(path.join(cacheDir, file));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to cleanup thumbnail cache for cropped image:', e);
+      }
+    }
+
+    return { success: true, path: finalPath, timestamp: Date.now() };
   } catch (error) {
     console.error('Failed to crop image:', error);
     return { success: false, error: error.message };

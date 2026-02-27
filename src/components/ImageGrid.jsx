@@ -12,15 +12,18 @@ import {
     Check,
     Scissors,
     Clipboard,
-    Heart
+    Heart,
+    Edit2
 } from 'lucide-react';
 import Thumbnail from './Thumbnail';
+import InputModal from '@/components/ui/InputModal';
 
 const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1', isActive = false }) => {
     // Existing states
     const [isDragSelecting, setIsDragSelecting] = useState(false);
     const [selectionBox, setSelectionBox] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
+    const [renameModal, setRenameModal] = useState({ isOpen: false, filePath: '', initialName: '', ext: '' });
     const containerRef = React.useRef(null);
     const dragStartPos = React.useRef(null);
 
@@ -226,6 +229,12 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             for (const p of paths) {
                 await FileSystem.deleteFile(p);
             }
+        } else if (action === 'rename') {
+            const fileName = targetPath.split(/[/\\]/).pop();
+            const lastDotIndex = fileName.lastIndexOf('.');
+            const baseName = lastDotIndex !== -1 ? fileName.substring(0, lastDotIndex) : fileName;
+            const ext = lastDotIndex !== -1 ? fileName.substring(lastDotIndex) : '';
+            setRenameModal({ isOpen: true, filePath: targetPath, initialName: baseName, ext: ext });
         } else if (action === 'reveal') {
             FileSystem.showInFolder(targetPath);
         }
@@ -499,12 +508,34 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy') },
                         { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste') },
                         { type: 'divider' },
+                        { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleContextOption('rename') },
+                        { type: 'divider' },
                         { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); } },
                         { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') },
                         { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to') },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true },
                         { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal') }
                     ]}
+                />
+            )}
+
+            {renameModal.isOpen && (
+                <InputModal
+                    isOpen={true}
+                    title="Rename File"
+                    initialValue={renameModal.initialName}
+                    placeholder="Enter new file name"
+                    onConfirm={async (newName) => {
+                        if (newName && newName !== renameModal.initialName) {
+                            const fullNewName = newName + renameModal.ext;
+                            const success = await FileSystem.renameItem(renameModal.filePath, fullNewName);
+                            if (success !== false) {
+                                window.dispatchEvent(new CustomEvent('folder-tree-refresh')); // trigger refresh
+                            }
+                        }
+                        setRenameModal({ isOpen: false, filePath: '', initialName: '', ext: '' });
+                    }}
+                    onCancel={() => setRenameModal({ isOpen: false, filePath: '', initialName: '', ext: '' })}
                 />
             )}
         </div>

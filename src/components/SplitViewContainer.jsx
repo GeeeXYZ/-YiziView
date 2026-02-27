@@ -15,7 +15,8 @@ const SplitViewContainer = ({
     onPanelActivate,
     renderPanel,
     onAddFolder,
-    onOpenSettings
+    onOpenSettings,
+    hasUpdate
 }) => {
     const [panelSizes, setPanelSizes] = useState(
         panels.map(() => 100 / panels.length)
@@ -97,13 +98,18 @@ const SplitViewContainer = ({
             <div className="h-12 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-900/50 shrink-0 titlebar-drag-region">
                 {/* Left: Logo and Add Folder */}
                 <div className="flex items-center gap-3 no-drag">
-                    <img
-                        src={logo}
-                        alt="YiziView"
-                        className="h-7 w-auto opacity-90 cursor-pointer hover:opacity-100 transition-opacity"
-                        onClick={onOpenSettings}
-                        title="Settings"
-                    />
+                    <div className="relative cursor-pointer" onClick={onOpenSettings} title="Settings">
+                        <img
+                            src={logo}
+                            alt="YiziView"
+                            className="h-7 w-auto opacity-90 hover:opacity-100 transition-opacity"
+                        />
+                        {hasUpdate && (
+                            <span className="absolute top-0 -right-1 flex h-2.5 w-2.5">
+                                <span className="relative inline-flex rounded-full h-full w-full bg-red-500 border border-neutral-900 shadow-sm"></span>
+                            </span>
+                        )}
+                    </div>
                     <div className="h-6 w-px bg-neutral-700"></div>
                     <button
                         onClick={onAddFolder}

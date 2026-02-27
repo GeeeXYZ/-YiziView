@@ -12,6 +12,18 @@ function App() {
   const [activePanelId, setActivePanelId] = useState('panel-1');
   const [confirmModal, setConfirmModal] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
+
+  useEffect(() => {
+    if (!window.electron?.onUpdateStateChange) return;
+    const unsubscribe = window.electron.onUpdateStateChange((payload) => {
+      const { state } = payload;
+      if (state === 'update-available' || state === 'update-downloaded') {
+        setHasUpdate(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Create panel states using custom hook
   const panel1State = usePanelState('panel-1');
@@ -395,6 +407,7 @@ function App() {
         onAddFolder={handleAddFolder}
         onOpenSettings={() => setIsSettingsOpen(true)}
         renderPanel={renderPanel}
+        hasUpdate={hasUpdate}
       />
 
       {/* Confirm Modal */}
