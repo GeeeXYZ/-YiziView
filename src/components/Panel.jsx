@@ -141,6 +141,8 @@ const Panel = ({
                                 currentFolder={currentFolder}
                                 aspectRatio={aspectRatio}
                                 isActive={isActive}
+                                onRefresh={() => handleFolderSelect(currentFolder)}
+                                setConfirmModal={setConfirmModal}
                             />
                         </div>
                     )}

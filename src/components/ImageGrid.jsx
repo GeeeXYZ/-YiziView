@@ -13,12 +13,13 @@ import {
     Scissors,
     Clipboard,
     Heart,
-    Edit2
+    Edit2,
+    RefreshCw
 } from 'lucide-react';
 import Thumbnail from './Thumbnail';
 import InputModal from '@/components/ui/InputModal';
 
-const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1', isActive = false }) => {
+const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndices = new Set(), onBatchSelect, currentFolder, aspectRatio = '1:1', isActive = false, onRefresh, setConfirmModal }) => {
     // Existing states
     const [isDragSelecting, setIsDragSelecting] = useState(false);
     const [selectionBox, setSelectionBox] = useState(null);
@@ -146,27 +147,43 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     const handleContextMenu = (e, filePath) => {
         e.preventDefault();
         e.stopPropagation();
+
+        // Snapshot the affected paths RIGHT NOW before any re-renders can change selectedIndices
+        let affectedPaths = [];
+        if (filePath) {
+            const imgIndex = images.findIndex(img => img.path === filePath);
+            const isSelected = imgIndex !== -1 && selectedIndices.has(imgIndex);
+
+            if (isSelected && selectedIndices.size > 0) {
+                // Right-clicked on a selected item → affect ALL selected items
+                selectedIndices.forEach(idx => {
+                    if (images[idx]) affectedPaths.push(images[idx].path);
+                });
+            } else {
+                // Right-clicked on an unselected item → affect only this one
+                affectedPaths = [filePath];
+                // Also select this image visually
+                if (imgIndex !== -1) {
+                    onImageClick(imgIndex, { ctrlKey: false, shiftKey: false, metaKey: false });
+                }
+            }
+        }
+
         setContextMenu({
             x: e.clientX,
             y: e.clientY,
             filePath,
-            selected: selectedIndices.has(images.findIndex(img => img.path === filePath))
+            affectedPaths, // snapshot of paths to operate on
         });
     };
 
     const handleContextOption = async (action) => {
         const targetPath = contextMenu.filePath;
+        const affectedPaths = contextMenu.affectedPaths || (targetPath ? [targetPath] : []);
         setContextMenu(null);
 
         if (action === 'cut') {
-            let paths = [targetPath];
-            if (contextMenu.selected && selectedIndices.size > 1) {
-                paths = [];
-                selectedIndices.forEach(idx => {
-                    if (images[idx]) paths.push(images[idx].path);
-                });
-            }
-            await FileSystem.cutToClipboard(paths);
+            await FileSystem.cutToClipboard(affectedPaths.length > 0 ? affectedPaths : [targetPath]);
         } else if (action === 'paste') {
             const internalState = FileSystem._clipboardState;
             let sources = [];
@@ -188,47 +205,47 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 }
             }
         } else if (action === 'copy') {
-            // If target is in selection, copy all selection. Else copy target only.
-            let paths = [targetPath];
-            if (contextMenu.selected && selectedIndices.size > 1) {
-                paths = [];
-                selectedIndices.forEach(idx => {
-                    if (images[idx]) paths.push(images[idx].path);
-                });
-            }
-            await FileSystem.copyToClipboard(paths);
+            await FileSystem.copyToClipboard(affectedPaths.length > 0 ? affectedPaths : [targetPath]);
         } else if (action === 'move_to' || action === 'copy_to') {
-            // 1. Determine items
-            let paths = [targetPath];
-            if (contextMenu.selected && selectedIndices.size > 1) {
-                paths = [];
-                selectedIndices.forEach(idx => {
-                    if (images[idx]) paths.push(images[idx].path);
-                });
-            }
+            const paths = affectedPaths.length > 0 ? affectedPaths : [targetPath];
 
-            // 2. Select Destination
             const destPath = await FileSystem.selectFolder();
-            if (!destPath) return; // Cancelled
+            if (!destPath) return;
 
-            // 3. Execute
             if (action === 'move_to') {
                 await FileSystem.moveItems(paths, destPath);
             } else {
                 await FileSystem.copyItems(paths, destPath);
             }
         } else if (action === 'delete') {
-            let paths = [targetPath];
-            if (contextMenu.selected && selectedIndices.size > 1) {
-                paths = [];
-                selectedIndices.forEach(idx => {
-                    if (images[idx]) paths.push(images[idx].path);
-                });
-            }
+            const pathsToDelete = affectedPaths.length > 0 ? affectedPaths : (targetPath ? [targetPath] : []);
 
-            for (const p of paths) {
-                await FileSystem.deleteFile(p);
+            if (pathsToDelete.length === 0) return;
+
+            const executeDelete = async () => {
+                for (const p of pathsToDelete) {
+                    await FileSystem.deleteFile(p);
+                }
+                if (onRefresh) onRefresh();
+            };
+
+            if (setConfirmModal && localStorage.getItem('settings_confirm_delete') !== 'false') {
+                setConfirmModal({
+                    title: 'Delete Items',
+                    message: `Are you sure you want to move ${pathsToDelete.length} item(s) to the Recycle Bin?`,
+                    confirmText: 'Move to Recycle Bin',
+                    confirmKind: 'danger',
+                    onConfirm: async () => {
+                        setConfirmModal(null);
+                        await executeDelete();
+                    },
+                    onCancel: () => setConfirmModal(null)
+                });
+            } else {
+                executeDelete();
             }
+        } else if (action === 'refresh') {
+            if (onRefresh) onRefresh();
         } else if (action === 'rename') {
             const fileName = targetPath.split(/[/\\]/).pop();
             const lastDotIndex = fileName.lastIndexOf('.');
@@ -245,6 +262,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         // Only start if left click and target is the container (or grid gap), not an image
         if (e.button !== 0) return;
         if (e.target.closest('.image-card')) return;
+        // Don't start drag select when clicking inside context menu or modals
+        if (contextMenu || e.target.closest('[class*="z-[1000]"]') || e.target.closest('[role="dialog"]')) return;
 
         e.stopPropagation(); // Prevent App from handling background click (which clears selection)
 
@@ -421,6 +440,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             ref={containerRef}
             className="flex-1 bg-neutral-900 overflow-y-auto relative select-none"
             onMouseDown={handleMouseDown}
+            onContextMenu={(e) => handleContextMenu(e, null)}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onScroll={handleScroll}
@@ -498,23 +518,27 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                         })}
                     </div>
                 )}
-            </div>      {contextMenu && (
+            </div>
+
+            {contextMenu && (
                 <ContextMenu
                     x={contextMenu.x}
                     y={contextMenu.y}
                     onClose={() => setContextMenu(null)}
                     options={[
-                        { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut') },
-                        { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy') },
+                        { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut'), disabled: !contextMenu.filePath },
+                        { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy'), disabled: !contextMenu.filePath },
                         { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste') },
                         { type: 'divider' },
-                        { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleContextOption('rename') },
+                        { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleContextOption('rename'), disabled: !contextMenu.filePath },
                         { type: 'divider' },
-                        { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); } },
-                        { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to') },
-                        { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to') },
-                        { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true },
-                        { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal') }
+                        { label: 'Copy File Path', icon: <FileText size={14} />, onClick: () => { navigator.clipboard.writeText(contextMenu.filePath); setContextMenu(null); }, disabled: !contextMenu.filePath },
+                        { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to'), disabled: !contextMenu.filePath },
+                        { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to'), disabled: !contextMenu.filePath },
+                        { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => handleContextOption('refresh') },
+                        { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal'), disabled: !contextMenu.filePath },
+                        { type: 'divider' },
+                        { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true, disabled: !contextMenu.filePath }
                     ]}
                 />
             )}

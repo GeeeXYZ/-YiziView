@@ -672,13 +672,33 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
     // Determine the final output path based on overwrite flag inside cropData
     const finalPath = cropData.overwrite ? imagePath : path.join(dir, `${basename}_crop_${Date.now()}${ext}`);
 
-    let pipeline = sharp(imagePath)
-      .extract({
-        left: Math.round(cropData.x),
-        top: Math.round(cropData.y),
-        width: Math.round(cropData.width),
-        height: Math.round(cropData.height)
-      });
+    let pipeline = sharp(imagePath);
+
+    if (cropData.rotation) {
+      // For rotated images, the bounding area changes. Get exact dimensions first.
+      const rotated = await pipeline.rotate(cropData.rotation).toBuffer({ resolveWithObject: true });
+
+      let left = Math.round(cropData.x);
+      let top = Math.round(cropData.y);
+      let width = Math.round(cropData.width);
+      let height = Math.round(cropData.height);
+
+      if (left < 0) left = 0;
+      if (top < 0) top = 0;
+      if (left + width > rotated.info.width) width = rotated.info.width - left;
+      if (top + height > rotated.info.height) height = rotated.info.height - top;
+
+      // Extract based on the safe parameters, from the rotated buffer.
+      pipeline = sharp(rotated.data).extract({ left, top, width, height });
+    } else {
+      let left = Math.round(cropData.x);
+      let top = Math.round(cropData.y);
+      let width = Math.round(cropData.width);
+      let height = Math.round(cropData.height);
+
+      // Just clamp slightly if it's off by 1-2 pixels due to Math.round
+      pipeline = pipeline.extract({ left, top, width, height });
+    }
 
     if (cropData.targetWidth || cropData.targetHeight) {
       pipeline = pipeline.resize({
@@ -716,6 +736,56 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
     return { success: true, path: finalPath, timestamp: Date.now() };
   } catch (error) {
     console.error('Failed to crop image:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Save Edited Image (from canvas data URL)
+ipcMain.handle('save-edited-image', async (event, { imagePath, dataUrl, overwrite }) => {
+  try {
+    const ext = path.extname(imagePath);
+    const basename = path.basename(imagePath, ext);
+    const dir = path.dirname(imagePath);
+
+    const tempPath = path.join(dir, `${basename}_temp_${Date.now()}${ext}`);
+    const finalPath = overwrite ? imagePath : path.join(dir, `${basename}_edit_${Date.now()}${ext}`);
+
+    // Decode base64 data URL to buffer
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Use sharp to convert to the correct format
+    let pipeline = sharp(buffer);
+    const lowerExt = ext.toLowerCase();
+    if (lowerExt === '.jpg' || lowerExt === '.jpeg') {
+      pipeline = pipeline.jpeg({ quality: 95 });
+    } else if (lowerExt === '.png') {
+      pipeline = pipeline.png();
+    } else if (lowerExt === '.webp') {
+      pipeline = pipeline.webp({ quality: 95 });
+    }
+
+    await pipeline.toFile(tempPath);
+    await fs.rename(tempPath, finalPath);
+
+    if (overwrite) {
+      try {
+        const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
+        const hash = crypto.createHash('md5').update(finalPath).digest('hex');
+        const files = await fs.readdir(cacheDir);
+        for (const file of files) {
+          if (file.startsWith(hash)) {
+            await fs.unlink(path.join(cacheDir, file));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to cleanup thumbnail cache for edited image:', e);
+      }
+    }
+
+    return { success: true, path: finalPath, timestamp: Date.now() };
+  } catch (error) {
+    console.error('Failed to save edited image:', error);
     return { success: false, error: error.message };
   }
 });
