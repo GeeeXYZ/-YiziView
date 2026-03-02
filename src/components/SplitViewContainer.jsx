@@ -89,8 +89,8 @@ const SplitViewContainer = ({
     }, [panels.length]);
 
     const containerClass = layout === 'horizontal'
-        ? 'flex flex-row h-full'
-        : 'flex flex-col h-full';
+        ? 'flex flex-row flex-1 min-h-0'
+        : 'flex flex-col flex-1 min-h-0';
 
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -186,7 +186,7 @@ const SplitViewContainer = ({
                             style={{
                                 [layout === 'horizontal' ? 'width' : 'height']: `${panelSizes[index]}%`,
                             }}
-                            className="relative"
+                            className="relative h-full overflow-hidden"
                         >
                             {renderPanel(panel, index)}
 

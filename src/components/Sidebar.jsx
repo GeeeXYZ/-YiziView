@@ -291,8 +291,8 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
 
                     {/* Top Section: Folders (Quick Access) */}
                     <div
-                        className="overflow-y-auto px-2 scrollbar-thin scrollbar-thumb-neutral-700 shrink-0 transition-all duration-300"
-                        style={{ maxHeight: 'calc(100% - 250px)' }}
+                        className="overflow-y-auto px-2 scrollbar-thin scrollbar-thumb-neutral-700 shrink transition-all duration-300 min-h-0"
+                        style={{ flex: '0 1 auto', maxHeight: '60%' }}
                     >
                         <div className="mt-4 mb-2 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between group items-center">
                             <span className="flex items-center gap-1"><Star size={12} className="text-yellow-500" /> Quick Access</span>
