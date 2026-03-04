@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = 'Confirm', confirmKind = 'primary' }) => {
+const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, onSecondary, confirmText = 'Confirm', secondaryText, cancelText = 'Cancel', confirmKind = 'primary', secondaryKind = 'neutral' }) => {
     const confirmRef = useRef(null);
 
     useEffect(() => {
@@ -27,8 +27,20 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
                         onClick={onCancel}
                         className="px-4 py-2 rounded-lg text-gray-400 hover:bg-neutral-700 hover:text-white transition-colors text-sm font-medium"
                     >
-                        Cancel
+                        {cancelText}
                     </button>
+                    {secondaryText && onSecondary && (
+                        <button
+                            type="button"
+                            onClick={onSecondary}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none ${secondaryKind === 'primary'
+                                ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                                : 'bg-neutral-700 hover:bg-neutral-600 text-gray-200'
+                                }`}
+                        >
+                            {secondaryText}
+                        </button>
+                    )}
                     <button
                         ref={confirmRef}
                         type="button"

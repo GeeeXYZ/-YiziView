@@ -100,6 +100,7 @@ const Panel = ({
                     onFolderSelect={handleFolderSelect}
                     currentPath={currentFolder}
                     onTagSelect={handleTagSelect}
+                    setConfirmModal={setConfirmModal}
                 />
             </div>
 

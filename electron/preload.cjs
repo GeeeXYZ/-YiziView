@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld('electron', {
     createFolder: (parentPath, folderName) => ipcRenderer.invoke('create-folder', { parentPath, folderName }),
     renameItem: (oldPath, newName) => ipcRenderer.invoke('rename-item', { oldPath, newName }),
     moveItems: (sourcePaths, targetPath) => ipcRenderer.invoke('move-items', { sourcePaths, targetPath }),
-    copyItems: (sourcePaths, targetPath) => ipcRenderer.invoke('copy-items', { sourcePaths, targetPath }),
+    copyItems: (sourcePaths, targetPath, overwrite) => ipcRenderer.invoke('copy-items', { sourcePaths, targetPath, overwrite }),
+    checkCollisions: (sourcePaths, targetPath) => ipcRenderer.invoke('check-collisions', { sourcePaths, targetPath }),
 
     // Drag & Drop
     getFilePath: (file) => {
@@ -27,6 +28,7 @@ contextBridge.exposeInMainWorld('electron', {
     // Context Menu
     showContextMenu: (path) => ipcRenderer.send('show-context-menu', path),
     showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
+    clearThumbnailsForFolder: (path) => ipcRenderer.invoke('clear-thumbnails-for-folder', path),
     onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', callback),
 
     // Folder Tree / Favorites

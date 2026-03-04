@@ -13,7 +13,7 @@ export const usePanelState = (panelId) => {
     const [lastSelectedIndex, setLastSelectedIndex] = useState(null);
     const [viewingIndex, setViewingIndex] = useState(null);
     const [aspectRatio, setAspectRatio] = useState('1:1');
-    const [sortConfig, setSortConfig] = useState({ type: 'name', direction: 'asc' });
+    const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
 
     // Help application sort
     const applySort = (imgs, config = sortConfig) => {

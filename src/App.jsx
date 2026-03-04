@@ -38,6 +38,17 @@ function App() {
   const panel2State = usePanelState('panel-2');
   const panel3State = usePanelState('panel-3');
 
+  // Lock UI Zoom: Prevent Ctrl + Mouse wheel zooming
+  useEffect(() => {
+    const handleWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
   // Map panel IDs to their states
   const panelStates = {
     'panel-1': panel1State,
@@ -204,14 +215,48 @@ function App() {
     }
 
     if (sources.length > 0) {
-      if (isCut) {
-        await FileSystem.moveItems(sources, targetFolder);
-        FileSystem._updateClipboard('copy', []);
+      const collisions = await FileSystem.checkCollisions(sources, targetFolder);
+
+      const performPaste = async (overwrite = false, forceCopy = false) => {
+        const isActuallyCopy = !isCut || forceCopy;
+
+        if (!isActuallyCopy) {
+          await FileSystem.moveItems(sources, targetFolder);
+          FileSystem._updateClipboard('copy', []);
+        } else {
+          await FileSystem.copyItems(sources, targetFolder, overwrite);
+        }
+
+        // Clear caches and dispatch event to force thumbnail redraw
+        await FileSystem.clearThumbnailsForFolder(targetFolder);
+        window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: targetFolder, timestamp: Date.now() } }));
+
+        // Trigger global refresh for folder trees
+        window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+      };
+
+      if (collisions.length > 0) {
+        setConfirmModal({
+          title: 'File Conflict',
+          message: `${collisions.length} file(s) already exist in the target folder. What would you like to do?`,
+          confirmText: 'Overwrite',
+          confirmKind: 'danger',
+          secondaryText: 'Create Copy',
+          secondaryKind: 'primary',
+          cancelText: 'Cancel',
+          onConfirm: () => {
+            setConfirmModal(null);
+            performPaste(true);
+          },
+          onSecondary: () => {
+            setConfirmModal(null);
+            performPaste(false, isCut); // If it was a cut, force it to behave like a copy to prevent source deletion
+          },
+          onCancel: () => setConfirmModal(null)
+        });
       } else {
-        await FileSystem.copyItems(sources, targetFolder);
+        await performPaste(false);
       }
-      // Trigger global refresh for folder trees
-      window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
     }
   };
 
@@ -290,10 +335,12 @@ function App() {
       if (!activeState) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Do not handle global delete/backspace if we are inside the image viewer.
+        // ImageViewer internally handles its own deletion logic.
+        if (activeState.viewingIndex !== null) return;
+
         // If images are selected, delete them
         if (activeState.selectedIndices.size > 0) {
-          if (activeState.viewingIndex !== null) return;
-
           const pathsToDelete = [];
           activeState.selectedIndices.forEach(idx => {
             if (activeState.images[idx]) pathsToDelete.push(activeState.images[idx].path);
@@ -328,39 +375,6 @@ function App() {
               onConfirm: async () => {
                 setConfirmModal(null);
                 await executeDeleteFiles();
-              },
-              onCancel: () => setConfirmModal(null)
-            });
-          }
-        }
-        // If no images selected but a folder is open, delete the folder
-        else if (activeState.currentFolder) {
-          e.preventDefault();
-          const folderPath = activeState.currentFolder;
-          const folderName = folderPath.split('\\').pop() || folderPath.split('/').pop() || folderPath;
-
-          const executeDeleteFolder = async () => {
-            const { FileSystem } = await import('./managers/FileSystem');
-            const success = await FileSystem.deleteFile(folderPath);
-            if (success) {
-              // Clear the panel state
-              activeState.handleFolderSelect(null);
-              // Trigger global refresh for folder trees
-              window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
-            }
-          };
-
-          if (localStorage.getItem('settings_confirm_delete') === 'false') {
-            executeDeleteFolder();
-          } else {
-            setConfirmModal({
-              title: 'Delete Folder',
-              message: `Are you sure you want to move "${folderName}" to the Recycle Bin?`,
-              confirmText: 'Move to Recycle Bin',
-              confirmKind: 'danger',
-              onConfirm: async () => {
-                setConfirmModal(null);
-                await executeDeleteFolder();
               },
               onCancel: () => setConfirmModal(null)
             });
@@ -421,12 +435,7 @@ function App() {
       {/* Confirm Modal */}
       <ConfirmModal
         isOpen={!!confirmModal}
-        title={confirmModal?.title}
-        message={confirmModal?.message}
-        onConfirm={confirmModal?.onConfirm}
-        onCancel={confirmModal?.onCancel}
-        confirmText={confirmModal?.confirmText}
-        confirmKind={confirmModal?.confirmKind}
+        {...confirmModal}
       />
 
       {/* Settings Modal */}

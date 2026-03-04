@@ -126,8 +126,16 @@ export const FileSystem = {
         window.dispatchEvent(new CustomEvent('clipboard-changed', { detail: FileSystem._clipboardState }));
     },
 
-    copyItems: async (sourcePaths, targetPath) => {
-        return await window.electron.copyItems(sourcePaths, targetPath);
+    copyItems: async (sourcePaths, targetPath, overwrite = false) => {
+        return await window.electron.copyItems(sourcePaths, targetPath, overwrite);
+    },
+
+    checkCollisions: async (sourcePaths, targetPath) => {
+        return await window.electron.checkCollisions(sourcePaths, targetPath);
+    },
+
+    clearThumbnailsForFolder: async (folderPath) => {
+        return await window.electron.clearThumbnailsForFolder(folderPath);
     },
 
     copyToClipboard: async (paths) => {
@@ -141,7 +149,11 @@ export const FileSystem = {
     },
 
     readClipboard: async () => {
-        return await window.electron.readClipboard();
+        const result = await window.electron.readClipboard();
+        if (typeof result === 'string' && result) {
+            return result.split('\n').map(p => p.trim()).filter(p => p);
+        }
+        return Array.isArray(result) ? result : [];
     },
 
     pasteFromClipboard: async (targetPath) => {

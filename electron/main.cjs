@@ -82,6 +82,8 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // Reset zoom level to 100% on startup to rescue from previous sessions
+    mainWindow.webContents.setZoomLevel(0);
   });
 
   // Open external links in default browser
@@ -90,11 +92,31 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Enable F12 to open DevTools globally
+  // Handle Global Shortcuts and UI Zoom Locking
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'F12' && input.type === 'keyDown') {
-      mainWindow.webContents.toggleDevTools();
-      event.preventDefault();
+    if (input.type === 'keyDown') {
+      // Enable F12 to open DevTools
+      if (input.key === 'F12') {
+        mainWindow.webContents.toggleDevTools();
+        event.preventDefault();
+        return;
+      }
+
+      // Handle UI Zoom
+      if (input.control || input.meta) {
+        // Ctrl + 0: Reset Zoom (Rescue)
+        if (input.key === '0') {
+          mainWindow.webContents.setZoomLevel(0);
+          event.preventDefault();
+        }
+        // Lock Zoom: Block Ctrl + Plus/Equal and Ctrl + Minus
+        else if (input.key === '=' || input.key === '+' || input.key === '-') {
+          // If the user wants to be able to zoom in once to get back, 
+          // we could allow it, but since we reset it on startup and with Ctrl+0,
+          // and they asked to "lock" it, we block these.
+          event.preventDefault();
+        }
+      }
     }
   });
 }
@@ -508,33 +530,34 @@ ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
   return successCount;
 });
 
-ipcMain.handle('copy-items', async (event, { sourcePaths, targetPath }) => {
+ipcMain.handle('copy-items', async (event, { sourcePaths, targetPath, overwrite = false }) => {
   let successCount = 0;
   for (const src of sourcePaths) {
     try {
       const fileName = path.basename(src);
       let dest = path.join(targetPath, fileName);
 
-      // Check collision and auto-rename
-      try {
-        await fs.access(dest);
-        // If exist, generate new name
-        const ext = path.extname(fileName);
-        const nameBody = path.basename(fileName, ext);
-        let counter = 1;
-        while (true) {
-          const newName = `${nameBody} (Copy${counter > 1 ? ' ' + counter : ''})${ext}`;
-          dest = path.join(targetPath, newName);
-          try {
-            await fs.access(dest);
-            counter++;
-          } catch {
-            // Valid name found
-            break;
+      if (!overwrite) {
+        // Check collision and auto-rename if not overwriting
+        try {
+          await fs.access(dest);
+          // If exist, generate new name
+          const ext = path.extname(fileName);
+          const nameBody = path.basename(fileName, ext);
+          let counter = 1;
+          while (true) {
+            const newName = `${nameBody} (Copy${counter > 1 ? ' ' + counter : ''})${ext}`;
+            dest = path.join(targetPath, newName);
+            try {
+              await fs.access(dest);
+              counter++;
+            } catch {
+              break;
+            }
           }
+        } catch (e) {
+          // Dest likely doesn't exist, proceed
         }
-      } catch (e) {
-        // Dest likely doesn't exist, proceed
       }
 
       await fs.cp(src, dest, { recursive: true });
@@ -544,6 +567,26 @@ ipcMain.handle('copy-items', async (event, { sourcePaths, targetPath }) => {
     }
   }
   return successCount;
+});
+
+ipcMain.handle('check-collisions', async (event, { sourcePaths, targetPath }) => {
+  const collisions = [];
+  for (const src of sourcePaths) {
+    const fileName = path.basename(src);
+    const dest = path.join(targetPath, fileName);
+    // If we're dropping/pasting in the exact same directory, it's not a standard overwrite collision,
+    // it's an auto-copying action. No need to flag it as conflicting in the prompt.
+    if (path.normalize(src).toLowerCase() === path.normalize(dest).toLowerCase()) {
+      continue;
+    }
+    try {
+      await fs.access(dest);
+      collisions.push(fileName);
+    } catch (e) {
+      // Doesn't exist
+    }
+  }
+  return collisions;
 });
 
 ipcMain.on('show-context-menu', (event, filePath) => {
@@ -1447,16 +1490,29 @@ ipcMain.handle('get-thumbnail', async (event, filePath, size = 600) => {
   activeThumbnailRequests.set(requestKey, promise);
   return promise;
 });
-ipcMain.handle('clear-thumbnail-cache', async () => {
+ipcMain.handle('clear-thumbnails-for-folder', async (event, folderPath) => {
   const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
   try {
-    const files = await fs.readdir(cacheDir);
-    for (const file of files) {
-      await fs.unlink(path.join(cacheDir, file));
+    const dirents = await fs.readdir(folderPath, { withFileTypes: true });
+    const files = dirents.filter(d => d.isFile()).map(d => path.join(folderPath, d.name));
+
+    let deletedCount = 0;
+    for (const filePath of files) {
+      const hash = crypto.createHash('md5').update(filePath).digest('hex');
+      try {
+        // We might have multiple sizes, so we need to find all matching files in cacheDir
+        const cacheFiles = await fs.readdir(cacheDir);
+        for (const cacheFile of cacheFiles) {
+          if (cacheFile.startsWith(hash)) {
+            await fs.unlink(path.join(cacheDir, cacheFile));
+            deletedCount++;
+          }
+        }
+      } catch (e) { }
     }
-    return { success: true };
+    return { success: true, count: deletedCount };
   } catch (error) {
-    console.error('Failed to clear thumbnail cache:', error);
+    console.error('Failed to clear thumbnails for folder:', error);
     return { success: false, error: error.message };
   }
 });

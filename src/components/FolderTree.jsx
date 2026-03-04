@@ -13,10 +13,11 @@ import {
     Copy,
     Scissors,
     Clipboard,
-    FileInput
+    FileInput,
+    RefreshCw
 } from 'lucide-react';
 
-const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, onConfirmDelete, refreshTrigger, searchQuery = '' }) => {
+const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, setConfirmModal, refreshTrigger, searchQuery = '' }) => {
     const { expandedSet, setFolderExpanded } = useExpandedFolders() || {};
     const [isExpanded, setIsExpanded] = useState(() => {
         if (searchQuery) return false;
@@ -121,6 +122,13 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const handleSelect = (e) => {
         e.stopPropagation();
         onSelect(path);
+
+        // Auto refresh children status when clicked
+        if (isExpanded) {
+            refreshSubfolders();
+        } else {
+            checkChildren();
+        }
     };
 
 
@@ -147,11 +155,18 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 }
             };
 
-            if (onConfirmDelete) {
-                onConfirmDelete({
+            if (setConfirmModal) {
+                setConfirmModal({
                     title: 'Delete Folder',
                     message: `Are you sure you want to move "${name}" to the Recycle Bin?`,
-                    onConfirm: performDelete
+                    confirmText: 'Delete',
+                    confirmKind: 'danger',
+                    onConfirm: async () => {
+                        setConfirmModal(null);
+                        await performDelete();
+                        window.dispatchEvent(new CustomEvent('folder-deleted', { detail: path }));
+                    },
+                    onCancel: () => setConfirmModal(null)
                 });
             } else {
                 // Fallback to native confirm
@@ -164,12 +179,72 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         } else if (action === 'copy') {
             FileSystem.copyToClipboard([path]);
         } else if (action === 'paste') {
-            const successCount = await FileSystem.pasteFromClipboard(path);
-            if (successCount > 0) {
-                // Refresh if expanded
-                if (isExpanded) refreshSubfolders();
-                if (onRefresh) onRefresh();
-                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+            const internalState = FileSystem._clipboardState;
+            let sources = [];
+            let isCutMode = false;
+
+            if (internalState && internalState.paths && internalState.paths.length > 0) {
+                sources = internalState.paths;
+                isCutMode = internalState.action === 'cut';
+            } else {
+                sources = await FileSystem.readClipboard();
+            }
+
+            if (sources.length > 0) {
+                const collisions = await FileSystem.checkCollisions(sources, path);
+
+                const performPaste = async (overwrite = false, forceCopy = false) => {
+                    const actuallyIsCopy = !isCutMode || forceCopy;
+                    let successCount = 0;
+
+                    if (!actuallyIsCopy) {
+                        successCount = await FileSystem.moveItems(sources, path);
+                        FileSystem._updateClipboard('copy', []);
+                    } else {
+                        successCount = await FileSystem.copyItems(sources, path, overwrite);
+                    }
+
+                    if (successCount > 0) {
+                        await FileSystem.clearThumbnailsForFolder(path);
+                        window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: path, timestamp: Date.now() } }));
+
+                        if (isExpanded) refreshSubfolders();
+                        if (onRefresh) onRefresh();
+                        window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+                    }
+                };
+
+                if (collisions.length > 0 && setConfirmModal) {
+                    setConfirmModal({
+                        title: 'File Conflict',
+                        message: `${collisions.length} file(s) already exist in the target folder. What would you like to do?`,
+                        confirmText: 'Overwrite',
+                        confirmKind: 'danger',
+                        secondaryText: 'Create Copy',
+                        secondaryKind: 'primary',
+                        cancelText: 'Cancel',
+                        onConfirm: () => {
+                            setConfirmModal(null);
+                            performPaste(true);
+                        },
+                        onSecondary: () => {
+                            setConfirmModal(null);
+                            // If cut conflict, convert to copy during 'Create Copies'
+                            performPaste(false, isCutMode);
+                        },
+                        onCancel: () => setConfirmModal(null)
+                    });
+                } else {
+                    await performPaste(false);
+                }
+            }
+        } else if (action === 'refresh') {
+            await FileSystem.clearThumbnailsForFolder(path);
+            window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: path, timestamp: Date.now() } }));
+            if (isExpanded) {
+                refreshSubfolders();
+            } else {
+                checkChildren();
             }
         }
     };
@@ -264,21 +339,52 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 return;
             }
 
-            let successCount = 0;
-            // Ctrl Key -> Copy, Otherwise -> Move
-            if (e.ctrlKey) {
-                successCount = await FileSystem.copyItems(files, path);
-            } else {
-                successCount = await FileSystem.moveItems(files, path);
-            }
+            const isCopy = e.ctrlKey;
+            const collisions = await FileSystem.checkCollisions(files, path);
 
-            if (successCount > 0) {
-                // Refresh current folder if expanded
-                if (isExpanded) {
-                    await refreshSubfolders();
+            const performDrop = async (overwrite = false, forceCopy = false) => {
+                const actuallyIsCopy = isCopy || forceCopy;
+                let successCount = 0;
+
+                if (actuallyIsCopy) {
+                    successCount = await FileSystem.copyItems(files, path, overwrite);
+                } else {
+                    successCount = await FileSystem.moveItems(files, path);
                 }
-                // Trigger global refresh for all folder trees
-                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+
+                if (successCount > 0) {
+                    await FileSystem.clearThumbnailsForFolder(path);
+                    window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: path, timestamp: Date.now() } }));
+
+                    if (isExpanded) {
+                        await refreshSubfolders();
+                    }
+                    window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
+                }
+            };
+
+            if (collisions.length > 0 && setConfirmModal) {
+                setConfirmModal({
+                    title: 'File Conflict',
+                    message: `${collisions.length} file(s) already exist. What would you like to do?`,
+                    confirmText: 'Overwrite',
+                    confirmKind: 'danger',
+                    secondaryText: 'Create Copy',
+                    secondaryKind: 'primary',
+                    cancelText: 'Cancel',
+                    onConfirm: () => {
+                        setConfirmModal(null);
+                        performDrop(true);
+                    },
+                    onSecondary: () => {
+                        setConfirmModal(null);
+                        // If move conflict, convert to copy during 'Create Copies'
+                        performDrop(false, !isCopy);
+                    },
+                    onCancel: () => setConfirmModal(null)
+                });
+            } else {
+                await performDrop(false);
             }
         }
     };
@@ -354,7 +460,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                                 currentPath={currentPath}
                                 initialHasChildren={folder.hasChildren}
                                 onRefresh={refreshSubfolders}
-                                onConfirmDelete={onConfirmDelete}
+                                setConfirmModal={setConfirmModal}
                                 refreshTrigger={refreshTrigger}
                                 searchQuery={searchQuery}
                             />
@@ -370,6 +476,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                     y={contextMenu.y}
                     onClose={() => setContextMenu(null)}
                     options={[
+                        { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => handleMenuOption('refresh') },
                         { label: 'New Subfolder', icon: <Plus size={14} />, onClick: () => handleMenuOption('create') },
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleMenuOption('cut') },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleMenuOption('copy') },

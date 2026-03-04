@@ -29,7 +29,7 @@ const getBasename = (path) => {
     return path.split(separator).pop();
 };
 
-const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
+const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal }) => {
     // State
     const [tags, setTags] = useState([]);
     const [favorites, setFavorites] = useState([]);
@@ -39,7 +39,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
     const [folderSearch, setFolderSearch] = useState('');
     const [editingTag, setEditingTag] = useState(null); // { name, newName }
     const [inputModal, setInputModal] = useState(null); // { type: 'rename'|'create', target, value }
-    const [confirmModal, setConfirmModal] = useState(null);
     const [dragOverTag, setDragOverTag] = useState(null);
 
     const sidebarRef = React.useRef(null);
@@ -69,13 +68,25 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
             setRefreshTrigger(prev => prev + 1);
         };
 
+        const handleFolderDeleted = async (e) => {
+            const deletedPath = e.detail;
+            const favs = await ConfigManager.loadFavorites();
+            if (favs.includes(deletedPath)) {
+                const newFavs = await ConfigManager.removeFavorite(deletedPath);
+                setFavorites(newFavs);
+            }
+        };
+
         window.addEventListener('favorites-updated', handleFavoritesUpdate);
         window.addEventListener('tags-updated', handleTagsUpdate);
         window.addEventListener('folder-tree-refresh', handleFolderTreeRefresh);
+        window.addEventListener('folder-deleted', handleFolderDeleted);
+
         return () => {
             window.removeEventListener('favorites-updated', handleFavoritesUpdate);
             window.removeEventListener('tags-updated', handleTagsUpdate);
             window.removeEventListener('folder-tree-refresh', handleFolderTreeRefresh);
+            window.removeEventListener('folder-deleted', handleFolderDeleted);
         };
     }, []);
 
@@ -324,24 +335,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                                         currentPath={currentPath}
                                         refreshTrigger={refreshTrigger}
                                         searchQuery={folderSearch}
-                                        onConfirmDelete={(config) => setConfirmModal({
-                                            ...config,
-                                            confirmKind: 'danger',
-                                            confirmText: 'Delete',
-                                            onCancel: () => setConfirmModal(null),
-                                            onConfirm: async () => {
-                                                setConfirmModal(null);
-                                                await config.onConfirm();
-
-                                                // Remove from favorites if it exists
-                                                const deletedPath = path;
-                                                if (favorites.includes(deletedPath)) {
-                                                    await ConfigManager.removeFavorite(deletedPath);
-                                                }
-
-                                                window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
-                                            }
-                                        })}
+                                        setConfirmModal={setConfirmModal}
                                     />
                                     <button
                                         onClick={(e) => handleRemoveFavorite(e, path)}
@@ -484,16 +478,6 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect }) => {
                     </div>
                 </div>
 
-                {/* Confirm Modal */}
-                <ConfirmModal
-                    isOpen={!!confirmModal}
-                    title={confirmModal?.title}
-                    message={confirmModal?.message}
-                    onConfirm={confirmModal?.onConfirm}
-                    onCancel={confirmModal?.onCancel}
-                    confirmText={confirmModal?.confirmText}
-                    confirmKind={confirmModal?.confirmKind}
-                />
             </div>
         </ExpandedFoldersProvider>
     );

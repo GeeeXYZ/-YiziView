@@ -23,6 +23,11 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     // Existing states
     const [isDragSelecting, setIsDragSelecting] = useState(false);
     const [selectionBox, setSelectionBox] = useState(null);
+
+    const isRealPath = currentFolder &&
+        !currentFolder.startsWith('Tag: ') &&
+        !currentFolder.startsWith('Tags (') &&
+        currentFolder !== 'Favorites';
     const [contextMenu, setContextMenu] = useState(null);
     const [renameModal, setRenameModal] = useState({ isOpen: false, filePath: '', initialName: '', ext: '' });
     const containerRef = React.useRef(null);
@@ -135,11 +140,46 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         }
 
         if (files.length > 0) {
-            // Ctrl -> Copy, Default -> Move
-            if (e.ctrlKey) {
-                await FileSystem.copyItems(files, currentFolder);
+            const isCopy = e.ctrlKey;
+            const collisions = await FileSystem.checkCollisions(files, currentFolder);
+
+            const performDrop = async (overwrite = false, forceCopy = false) => {
+                const actuallyIsCopy = isCopy || forceCopy;
+                if (actuallyIsCopy) {
+                    await FileSystem.copyItems(files, currentFolder, overwrite);
+                } else {
+                    await FileSystem.moveItems(files, currentFolder);
+                }
+
+                // Force thumbnail cache clear to show new image previews immediately
+                await FileSystem.clearThumbnailsForFolder(currentFolder);
+                window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: currentFolder, timestamp: Date.now() } }));
+
+                if (onRefresh) onRefresh();
+            };
+
+            if (collisions.length > 0 && setConfirmModal) {
+                setConfirmModal({
+                    title: 'File Conflict',
+                    message: `${collisions.length} file(s) already exist. What would you like to do?`,
+                    confirmText: 'Overwrite',
+                    confirmKind: 'danger',
+                    secondaryText: 'Create Copy',
+                    secondaryKind: 'primary',
+                    cancelText: 'Cancel',
+                    onConfirm: () => {
+                        setConfirmModal(null);
+                        performDrop(true);
+                    },
+                    onSecondary: () => {
+                        setConfirmModal(null);
+                        // If move conflict, convert to copy during 'Create Copies'
+                        performDrop(false, !isCopy);
+                    },
+                    onCancel: () => setConfirmModal(null)
+                });
             } else {
-                await FileSystem.moveItems(files, currentFolder);
+                await performDrop(false);
             }
         }
     };
@@ -197,11 +237,45 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             }
 
             if (sources.length > 0) {
-                if (isCut) {
-                    await FileSystem.moveItems(sources, currentFolder);
-                    FileSystem._updateClipboard('copy', []);
+                const collisions = await FileSystem.checkCollisions(sources, currentFolder);
+
+                const performPaste = async (overwrite = false, forceCopy = false) => {
+                    const actuallyIsCopy = !isCut || forceCopy;
+                    if (!actuallyIsCopy) {
+                        await FileSystem.moveItems(sources, currentFolder);
+                        FileSystem._updateClipboard('copy', []);
+                    } else {
+                        await FileSystem.copyItems(sources, currentFolder, overwrite);
+                    }
+
+                    // Force thumbnail cache clear to show new image previews immediately
+                    await FileSystem.clearThumbnailsForFolder(currentFolder);
+                    window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: currentFolder, timestamp: Date.now() } }));
+
+                    if (onRefresh) onRefresh();
+                };
+
+                if (collisions.length > 0 && setConfirmModal) {
+                    setConfirmModal({
+                        title: 'File Conflict',
+                        message: `${collisions.length} file(s) already exist. What would you like to do?`,
+                        confirmText: 'Overwrite',
+                        confirmKind: 'danger',
+                        secondaryText: 'Create Copy',
+                        secondaryKind: 'primary',
+                        cancelText: 'Cancel',
+                        onConfirm: () => {
+                            setConfirmModal(null);
+                            performPaste(true);
+                        },
+                        onSecondary: () => {
+                            setConfirmModal(null);
+                            performPaste(false, isCut);
+                        },
+                        onCancel: () => setConfirmModal(null)
+                    });
                 } else {
-                    await FileSystem.copyItems(sources, currentFolder);
+                    await performPaste(false);
                 }
             }
         } else if (action === 'copy') {
@@ -245,6 +319,10 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 executeDelete();
             }
         } else if (action === 'refresh') {
+            if (isRealPath) {
+                await FileSystem.clearThumbnailsForFolder(currentFolder);
+                window.dispatchEvent(new CustomEvent('folder-thumbnails-cleared', { detail: { folder: currentFolder, timestamp: Date.now() } }));
+            }
             if (onRefresh) onRefresh();
         } else if (action === 'rename') {
             const fileName = targetPath.split(/[/\\]/).pop();
@@ -253,7 +331,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             const ext = lastDotIndex !== -1 ? fileName.substring(lastDotIndex) : '';
             setRenameModal({ isOpen: true, filePath: targetPath, initialName: baseName, ext: ext });
         } else if (action === 'reveal') {
-            FileSystem.showInFolder(targetPath);
+            FileSystem.showInFolder(targetPath || currentFolder);
         }
     };
 
@@ -528,7 +606,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     options={[
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut'), disabled: !contextMenu.filePath },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy'), disabled: !contextMenu.filePath },
-                        { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste') },
+                        { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste'), disabled: !isRealPath },
                         { type: 'divider' },
                         { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => handleContextOption('rename'), disabled: !contextMenu.filePath },
                         { type: 'divider' },
@@ -536,7 +614,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                         { label: 'Copy to...', icon: <Copy size={14} />, onClick: () => handleContextOption('copy_to'), disabled: !contextMenu.filePath },
                         { label: 'Move to...', icon: <Truck size={14} />, onClick: () => handleContextOption('move_to'), disabled: !contextMenu.filePath },
                         { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => handleContextOption('refresh') },
-                        { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal'), disabled: !contextMenu.filePath },
+                        { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal'), disabled: !contextMenu.filePath && !isRealPath },
                         { type: 'divider' },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true, disabled: !contextMenu.filePath }
                     ]}

@@ -26,23 +26,43 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
     }, []);
 
     useEffect(() => {
-        const handleImageUpdated = (e) => {
-            if (e.detail && e.detail.path === path) {
-                // If the thumbnail is currently loaded, forcefully append timestamp to break cache
-                if (thumbSrc) {
-                    setThumbSrc(prev => {
-                        if (!prev) return prev;
-                        // Strip old query completely before appending new
-                        const base = prev.split('?')[0];
-                        return `${base}?t=${e.detail.timestamp}`;
-                    });
+        const reloadThumbnail = async (timestamp) => {
+            window.imageTimestamps = window.imageTimestamps || {};
+            window.imageTimestamps[path] = timestamp;
+
+            if (thumbSrc) {
+                try {
+                    const preferredSize = parseInt(localStorage.getItem('settings_thumb_size')) || 600;
+                    const t = await FileSystem.getThumbnail(path, preferredSize);
+                    const base = t.split('?')[0];
+                    setThumbSrc(`${base}?t=${timestamp}`);
+                } catch (err) {
+                    const base = src.split('?')[0];
+                    setThumbSrc(`${base}?t=${timestamp}`);
                 }
             }
         };
 
+        const handleImageUpdated = (e) => {
+            if (e.detail && e.detail.path === path) {
+                reloadThumbnail(e.detail.timestamp);
+            }
+        };
+
+        const handleFolderCleared = (e) => {
+            if (e.detail && path && path.startsWith(e.detail.folder)) {
+                reloadThumbnail(e.detail.timestamp);
+            }
+        };
+
         window.addEventListener('image-updated', handleImageUpdated);
-        return () => window.removeEventListener('image-updated', handleImageUpdated);
-    }, [path, thumbSrc]);
+        window.addEventListener('folder-thumbnails-cleared', handleFolderCleared);
+
+        return () => {
+            window.removeEventListener('image-updated', handleImageUpdated);
+            window.removeEventListener('folder-thumbnails-cleared', handleFolderCleared);
+        };
+    }, [path, thumbSrc, src]);
 
     useEffect(() => {
         if (!isVisible) {
@@ -59,11 +79,23 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
             try {
                 // Request thumbnail from backend
                 const preferredSize = parseInt(localStorage.getItem('settings_thumb_size')) || 600;
-                const t = await FileSystem.getThumbnail(path, preferredSize);
+                let t = await FileSystem.getThumbnail(path, preferredSize);
+
+                // Append global timestamp if available
+                if (window.imageTimestamps && window.imageTimestamps[path]) {
+                    const base = t.split('?')[0];
+                    t = `${base}?t=${window.imageTimestamps[path]}`;
+                }
+
                 if (active) setThumbSrc(t);
             } catch (e) {
                 // Fallback to original
-                if (active) setThumbSrc(src);
+                let fallback = src;
+                if (window.imageTimestamps && window.imageTimestamps[path]) {
+                    const base = src.split('?')[0];
+                    fallback = `${base}?t=${window.imageTimestamps[path]}`;
+                }
+                if (active) setThumbSrc(fallback);
             }
         };
 
