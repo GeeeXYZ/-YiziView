@@ -7,6 +7,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [importing, setImporting] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(() => localStorage.getItem('settings_confirm_delete') !== 'false');
     const [cropOverwrite, setCropOverwrite] = useState(() => localStorage.getItem('settings_crop_overwrite') === 'true');
+    const [thumbFit, setThumbFit] = useState(() => localStorage.getItem('settings_thumb_fit') || 'cover');
 
     // Auto-update state
     const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error
@@ -275,6 +276,39 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                             <div className="flex items-center justify-between gap-4">
                                 <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Thumbnail Fit Mode</h4>
+                                    <p className="text-sm text-gray-400">
+                                        <b>Fill:</b> Crop to fill the square. <b>Fit:</b> Show full image (letterboxed).
+                                    </p>
+                                </div>
+                                <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
+                                    <button
+                                        onClick={() => {
+                                            setThumbFit('cover');
+                                            localStorage.setItem('settings_thumb_fit', 'cover');
+                                            window.dispatchEvent(new CustomEvent('settings-updated'));
+                                        }}
+                                        className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${thumbFit === 'cover' ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        Fill (Cover)
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setThumbFit('contain');
+                                            localStorage.setItem('settings_thumb_fit', 'contain');
+                                            window.dispatchEvent(new CustomEvent('settings-updated'));
+                                        }}
+                                        className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${thumbFit === 'contain' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        Fit (Contain)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <hr className="border-neutral-700/50" />
+
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
                                     <h4 className="text-white font-medium mb-1">Clear Thumbnail Cache</h4>
                                     <p className="text-sm text-gray-400">
                                         Remove all cached thumbnails to free up disk space. New thumbnails will be generated when needed.
@@ -352,7 +386,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                 <div className="text-sm text-gray-400 space-y-2 flex-1 relative">
                                     <div className="flex justify-between">
                                         <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.8.2</p>
+                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.8.3</p>
                                     </div>
 
                                     {updateMessage && (

@@ -5,10 +5,19 @@ import { FileSystem } from '../managers/FileSystem';
 const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart }) => {
     const [thumbSrc, setThumbSrc] = useState(null); // Null means not loaded yet
     const [isVisible, setIsVisible] = useState(false);
+    const [thumbFit, setThumbFit] = useState(() => localStorage.getItem('settings_thumb_fit') || 'cover');
     const imgRef = useRef(null);
     const videoRef = useRef(null);
 
     const isVideo = path && /\.(mp4|webm|mov|mkv)$/i.test(path);
+
+    useEffect(() => {
+        const handleSettingsUpdate = () => {
+            setThumbFit(localStorage.getItem('settings_thumb_fit') || 'cover');
+        };
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        return () => window.removeEventListener('settings-updated', handleSettingsUpdate);
+    }, []);
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -132,7 +141,7 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
                     <video
                         ref={videoRef}
                         src={src}
-                        className="w-full h-full object-cover"
+                        className={`w-full h-full ${thumbFit === 'contain' ? 'object-contain' : 'object-cover'}`}
                         preload="metadata"
                         muted
                         playsInline
@@ -155,7 +164,7 @@ const Thumbnail = ({ src, path, alt, className, style, draggable, onDragStart })
             ref={imgRef}
             src={isVisible && thumbSrc ? thumbSrc : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
             alt={alt}
-            className={`object-cover w-full h-full transition-opacity duration-300 ${className} ${!thumbSrc && isVisible ? 'opacity-0' : 'opacity-100'}`}
+            className={`${thumbFit === 'contain' ? 'object-contain' : 'object-cover'} w-full h-full transition-opacity duration-300 ${className} ${!thumbSrc && isVisible ? 'opacity-0' : 'opacity-100'}`}
             style={style}
             draggable={draggable}
             onDragStart={onDragStart}
