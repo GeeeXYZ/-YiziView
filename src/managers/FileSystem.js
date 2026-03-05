@@ -34,14 +34,6 @@ export const FileSystem = {
     },
 
     /**
-     * Start native drag operation.
-     * @param {string} filePath 
-     */
-    startDrag: (filePath) => {
-        window.electron.startDrag(filePath);
-    },
-
-    /**
      * Show context menu for a file.
      * @param {string} filePath
      */

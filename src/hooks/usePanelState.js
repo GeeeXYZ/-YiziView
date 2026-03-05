@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileSystem } from '@/managers/FileSystem';
 
 /**
@@ -16,7 +16,7 @@ export const usePanelState = (panelId) => {
     const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
 
     // Help application sort
-    const applySort = (imgs, config = sortConfig) => {
+    const applySort = useCallback((imgs, config = sortConfig) => {
         const { type, direction } = config;
         return [...imgs].sort((a, b) => {
             if (type === 'name') {
@@ -32,7 +32,7 @@ export const usePanelState = (panelId) => {
             }
             return 0;
         });
-    };
+    }, [sortConfig]);
 
     // Folder change listener (Auto-refresh)
     useEffect(() => {
@@ -58,7 +58,7 @@ export const usePanelState = (panelId) => {
             if (removeListener) removeListener();
             if (debounceTimer) clearTimeout(debounceTimer);
         };
-    }, [currentFolder, sortConfig]); // Added sortConfig to dependency
+    }, [currentFolder, panelId, applySort]); // Fixed dependencies
 
     // Handle folder selection
     const handleFolderSelect = async (folderPath) => {

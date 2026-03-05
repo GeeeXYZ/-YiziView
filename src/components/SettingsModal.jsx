@@ -352,7 +352,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                 <div className="text-sm text-gray-400 space-y-2 flex-1 relative">
                                     <div className="flex justify-between">
                                         <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.7.10</p>
+                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.8.2</p>
                                     </div>
 
                                     {updateMessage && (
