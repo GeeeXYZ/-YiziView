@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Pen } from 'lucide-react';
+import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Eye, EyeOff } from 'lucide-react';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
@@ -18,8 +18,11 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [isFav, setIsFav] = useState(false);
 
     // ===== Edit Mode =====
-    const [isEditing, setIsEditing] = useState(false);
-    const [editTool, setEditTool] = useState('brush'); // 'brush' | 'crop'
+    const [showToolbar, setShowToolbar] = useState(true);
+    const [isEditing, setIsEditing] = useState(false); // Only true when brush/crop is actively selected
+    const [editTool, setEditTool] = useState(null); // null | 'brush' | 'crop'
+
+    const isVideo = image?.path && /\.(mp4|webm|mov|mkv)$/i.test(image.path);
 
     // ===== Brush State =====
     const [brushColor, setBrushColor] = useState('#FF3B30');
@@ -99,6 +102,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     useEffect(() => {
         let interval;
         if (isAutoPlay) {
+            setShowToolbar(false);
             interval = setInterval(() => {
                 if (onNextRef.current) onNextRef.current();
             }, 3000);
@@ -110,6 +114,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (isSaving) return;
+
+            // Space key shouldn't trigger button clicks if focus is somewhere else
+            // and we explicitly don't want it to toggle UI per instruction.
+            if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault(); // Stop space from toggling default focused buttons
+                return;
+            }
+
             if (e.key === 'Escape') {
                 if (isEditing) {
                     cancelEdit();
@@ -124,6 +136,18 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     if (onDelete) onDelete();
                 }
             }
+
+            // Edit tool shortcuts
+            if (showToolbar) {
+                if (e.key.toLowerCase() === 'c') {
+                    e.preventDefault();
+                    switchTool('crop');
+                } else if (e.key.toLowerCase() === 'b') {
+                    e.preventDefault();
+                    switchTool('brush');
+                }
+            }
+
             // Undo for brush: Ctrl+Z
             if (isEditing && editTool === 'brush' && (e.ctrlKey || e.metaKey) && e.key === 'z') {
                 e.preventDefault();
@@ -132,19 +156,28 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev, onDelete, isEditing, editTool, isSaving]);
+    }, [onClose, onNext, onPrev, onDelete, isEditing, editTool, isSaving, showToolbar]);
 
     // ===== Reset on image change =====
     useEffect(() => {
         setZoom(1);
         setPosition({ x: 0, y: 0 });
+        setEditTool(null);
         setIsEditing(false);
-        setEditTool('brush');
         setRotation(0);
-        setCrop(undefined);
+
+        const savedAspect = localStorage.getItem('last_crop_aspect');
+        const savedTargetW = localStorage.getItem('last_crop_target_w') || '';
+        const savedTargetH = localStorage.getItem('last_crop_target_h') || '';
+        setAspect(savedAspect ? parseFloat(savedAspect) : undefined);
+        setTargetW(savedTargetW);
+        setTargetH(savedTargetH);
+
+        const initialCrop = { unit: '%', width: 100, height: 100, x: 0, y: 0 };
+        setCrop(initialCrop);
         setCompletedCrop(null);
-        setTargetW('');
-        setTargetH('');
+        percentCropRef.current = initialCrop;
+
         setForceImageUrl(null);
         drawHistoryRef.current = [];
     }, [image]);
@@ -201,17 +234,35 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const setupDrawCanvas = useCallback(() => {
         const canvas = drawCanvasRef.current;
         if (!canvas) return;
-        // Match the size of the displayed image
         const parent = canvas.parentElement;
         if (!parent) return;
         const imgEl = parent.querySelector('img');
         if (!imgEl) return;
 
         const rect = imgEl.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        canvas.style.width = rect.width + 'px';
-        canvas.style.height = rect.height + 'px';
+        if (rect.width === 0 || rect.height === 0 || !imgEl.naturalWidth) return;
+
+        const naturalRatio = imgEl.naturalWidth / imgEl.naturalHeight;
+        const renderRatio = rect.width / rect.height;
+
+        let actualWidth, actualHeight;
+        if (naturalRatio > renderRatio) {
+            actualWidth = rect.width;
+            actualHeight = rect.width / naturalRatio;
+        } else {
+            actualHeight = rect.height;
+            actualWidth = rect.height * naturalRatio;
+        }
+
+        canvas.width = Math.round(actualWidth);
+        canvas.height = Math.round(actualHeight);
+        canvas.style.width = Math.round(actualWidth) + 'px';
+        canvas.style.height = Math.round(actualHeight) + 'px';
+
+        canvas.style.position = 'absolute';
+        canvas.style.left = '50%';
+        canvas.style.top = '50%';
+        canvas.style.transform = 'translate(-50%, -50%)';
 
         // Restore history
         restoreDrawHistory();
@@ -221,9 +272,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         if (isEditing && editTool === 'brush') {
             // Small delay to ensure the image is rendered
             const timer = setTimeout(setupDrawCanvas, 100);
-            return () => clearTimeout(timer);
+            window.addEventListener('resize', setupDrawCanvas);
+            return () => {
+                clearTimeout(timer);
+                window.removeEventListener('resize', setupDrawCanvas);
+            };
         }
-    }, [isEditing, editTool, setupDrawCanvas]);
+    }, [isEditing, editTool, setupDrawCanvas, zoom]);
 
     // Restore drawing from history
     const restoreDrawHistory = () => {
@@ -376,39 +431,63 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     }, [isDragging]);
 
     // ===== Edit Mode Actions =====
-    const startEditing = (e) => {
+    const toggleToolbar = (e) => {
         e.stopPropagation();
-        setIsAutoPlay(false);
-        setIsEditing(true);
-        setEditTool('brush');
-        setZoom(1);
-        setPosition({ x: 0, y: 0 });
-        setRotation(0);
-
-        const savedAspect = localStorage.getItem('last_crop_aspect');
-        const savedTargetW = localStorage.getItem('last_crop_target_w') || '';
-        const savedTargetH = localStorage.getItem('last_crop_target_h') || '';
-        setAspect(savedAspect ? parseFloat(savedAspect) : undefined);
-        setTargetW(savedTargetW);
-        setTargetH(savedTargetH);
-
-        const initialCrop = { unit: '%', width: 100, height: 100, x: 0, y: 0 };
-        setCrop(initialCrop);
-        setCompletedCrop(null);
-        percentCropRef.current = initialCrop;
-        drawHistoryRef.current = [];
+        if (showToolbar) {
+            setShowToolbar(false);
+            setIsEditing(false);
+            setEditTool(null);
+        } else {
+            setIsAutoPlay(false);
+            setShowToolbar(true);
+            setZoom(1);
+            setPosition({ x: 0, y: 0 });
+            setRotation(0);
+        }
     };
 
     const cancelEdit = (e) => {
         if (e) e.stopPropagation();
         setIsEditing(false);
+        setEditTool(null);
         setRotation(0);
-        setEditTool('brush');
         drawHistoryRef.current = [];
     };
 
     const switchTool = (tool) => {
+        setIsEditing(true);
         setEditTool(tool);
+        // When switching specifically to crop, ensure crop state is valid
+        if (tool === 'crop' && imgRef.current) {
+            const { width, height } = imgRef.current;
+            if (width > 0 && height > 0) {
+                // If we have an aspect ratio, enforce it immediately
+                if (aspect) {
+                    let initWidth = width * 0.9;
+                    if (initWidth / aspect > height) initWidth = height * aspect;
+                    const newCrop = centerCrop(
+                        makeAspectCrop({ unit: 'px', width: initWidth }, aspect, width, height),
+                        width, height
+                    );
+                    const newPercentCrop = {
+                        unit: '%',
+                        x: (newCrop.x / width) * 100,
+                        y: (newCrop.y / height) * 100,
+                        width: (newCrop.width / width) * 100,
+                        height: (newCrop.height / height) * 100
+                    };
+                    setCrop(newPercentCrop);
+                    setCompletedCrop(newCrop);
+                    percentCropRef.current = newPercentCrop;
+                } else if (!crop || crop.width === 0 || crop.height === 0) {
+                    // fallback to 100% if no crop exists
+                    const resetCrop = { unit: '%', width: 100, height: 100, x: 0, y: 0 };
+                    setCrop(resetCrop);
+                    setCompletedCrop(null);
+                    percentCropRef.current = resetCrop;
+                }
+            }
+        }
     };
 
     // ===== Crop Aspect Handlers =====
@@ -428,6 +507,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             } else if (!isNaN(h) && h > 0) {
                 setTargetW(Math.round(h * newAspect).toString());
             }
+        } else {
+            // User switched to Free mode. Clearing any previously set rigid export dimensions
+            // so they do not artificially stretch the free-drawn box on export.
+            setTargetW('');
+            setTargetH('');
+            localStorage.removeItem('last_crop_target_w');
+            localStorage.removeItem('last_crop_target_h');
         }
 
         if (imgRef.current && editTool === 'crop') {
@@ -449,6 +535,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 setCrop(newPercentCrop);
                 setCompletedCrop(newCrop);
                 percentCropRef.current = newPercentCrop;
+            } else {
+                // When switching to Free, keep current boundaries but just remove aspect constraint.
+                // Or if there is no crop, set to full size.
             }
         }
     };
@@ -485,7 +574,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         }
     };
 
-    const handleCropKeyDown = (e) => {
+    const handleEditKeyDown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             const overwrite = localStorage.getItem('settings_crop_overwrite') === 'true';
@@ -495,7 +584,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
     // ===== Save Edit =====
     const saveEdit = async (e, overwrite = false) => {
-        e.stopPropagation();
+        if (e) e.stopPropagation();
         if (!image) return;
 
         setIsSaving(true);
@@ -656,7 +745,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         }
     };
 
-    const isVideo = image?.path && /\.(mp4|webm|mov|mkv)$/i.test(image.path);
+    // isVideo is defined above
 
     if (!image) return null;
 
@@ -664,7 +753,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         <div
             className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
             onClick={onClose}
-            onKeyDown={isEditing && editTool === 'crop' ? handleCropKeyDown : undefined}
+            onKeyDown={isEditing ? handleEditKeyDown : undefined}
             tabIndex={-1}
         >
             {/* Top Bar Controls */}
@@ -689,14 +778,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     <Heart className="h-6 w-6" fill={isFav ? "currentColor" : "none"} strokeWidth={2} />
                 </button>
 
-                {/* Edit Button */}
+                {/* Toolbar Toggle */}
                 {!isVideo && (
                     <button
-                        onClick={startEditing}
-                        className={`p-2.5 rounded-full hover:bg-black/20 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isEditing ? 'text-blue-400 drop-shadow-none bg-black/40' : 'text-white/80 hover:text-white'}`}
-                        title="Edit Image"
+                        onClick={toggleToolbar}
+                        className={`p-2.5 rounded-full hover:bg-black/20 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${!showToolbar ? 'text-gray-400' : 'text-white/80 hover:text-white'}`}
+                        title={showToolbar ? "Hide Toolbar" : "Show Toolbar"}
                     >
-                        <Pen className="h-6 w-6" strokeWidth={2} />
+                        {showToolbar ? <Eye className="h-6 w-6" strokeWidth={2} /> : <EyeOff className="h-6 w-6" strokeWidth={2} />}
                     </button>
                 )}
 
@@ -730,7 +819,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                         cursor: isDragging ? 'grabbing' : (isEditing ? (editTool === 'brush' ? 'crosshair' : hoverCursor) : 'grab'),
                     }}
-                        className={`pointer-events-auto h-full w-full flex items-center justify-center ${isEditing ? 'px-16 py-16' : ''}`}
+                        className="pointer-events-auto h-full w-full flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={!isEditing ? handleMouseDown : undefined}
                         onPointerMove={(e) => {
@@ -787,17 +876,23 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                             >
                                 <canvas
                                     ref={imgRef}
-                                    style={{ maxHeight: 'calc(100vh - 12rem)', maxWidth: 'calc(100vw - 4rem)' }}
+                                    style={{ maxHeight: '100vh', maxWidth: '100vw' }}
                                     className="select-none block"
                                 />
                             </ReactCrop>
                         ) : (
-                            <div className="relative inline-flex items-center justify-center" style={{ maxWidth: '100%', maxHeight: '100%' }}>
+                            <div className="relative w-full h-full flex items-center justify-center">
                                 <img
                                     ref={imgRef}
                                     src={getActiveUrl()}
                                     alt={image.name}
-                                    className={`${isEditing ? 'max-h-[calc(100vh-12rem)] max-w-[calc(100vw-4rem)]' : 'w-full h-full'} object-contain select-none block`}
+                                    style={{
+                                        maxWidth: isEditing ? 'calc(100vw - 4rem)' : '100vw',
+                                        maxHeight: isEditing ? 'calc(100vh - 12rem)' : '100vh',
+                                        width: '100%',
+                                        height: '100%'
+                                    }}
+                                    className="object-contain select-none block"
                                     onLoad={isEditing && editTool === 'brush' ? setupDrawCanvas : undefined}
                                 />
                                 {/* Drawing Canvas Overlay - matches image exactly */}
@@ -815,22 +910,22 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 )}
             </div>
 
-            {/* ===== Edit Action Bar ===== */}
-            {isEditing && (
+            {/* ===== Action Bar ===== */}
+            {showToolbar && !isVideo && (
                 <div className="edit-action-bar absolute bottom-10 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur border border-neutral-700 p-2 rounded-xl flex flex-col gap-2 shadow-2xl z-[80] transition-colors max-w-[95vw]" onClick={(e) => e.stopPropagation()}>
                     {/* Tool Tabs */}
                     <div className="flex items-center justify-center gap-1 pb-2 border-b border-neutral-800 px-2">
                         <button
-                            onClick={() => switchTool('brush')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'brush' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
-                        >
-                            <Paintbrush size={14} /> Brush
-                        </button>
-                        <button
                             onClick={() => switchTool('crop')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'crop' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
                         >
-                            <Crop size={14} /> Crop
+                            <Crop size={14} /> Crop <span className="opacity-50 font-normal ml-0.5">(C)</span>
+                        </button>
+                        <button
+                            onClick={() => switchTool('brush')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'brush' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
+                        >
+                            <Paintbrush size={14} /> Brush <span className="opacity-50 font-normal ml-0.5">(B)</span>
                         </button>
                     </div>
 
@@ -929,9 +1024,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                 <div className="w-px h-4 bg-neutral-700 mx-1 hidden md:block" />
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-400 text-xs hidden md:inline ml-1">Export:</span>
-                                    <input type="number" value={targetW} onChange={handleTargetWChange} onKeyDown={handleCropKeyDown} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
+                                    <input type="number" value={targetW} onChange={handleTargetWChange} onKeyDown={handleEditKeyDown} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
                                     <span className="text-gray-500 text-xs">x</span>
-                                    <input type="number" value={targetH} onChange={handleTargetHChange} onKeyDown={handleCropKeyDown} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" />
+                                    <input type="number" value={targetH} onChange={handleTargetHChange} onKeyDown={handleEditKeyDown} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" />
                                     <span className="text-gray-500 text-xs ml-1">px</span>
                                 </div>
                             </div>
@@ -948,17 +1043,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     )}
 
                     {/* Action Row (shared) */}
-                    <div className="flex items-center justify-center gap-2 pt-1 px-2 border-t border-neutral-800">
-                        <button onClick={cancelEdit} disabled={isSaving} className="px-3 py-1.5 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm">
-                            <XIcon size={14} /> Cancel
-                        </button>
-                        <button onClick={(e) => saveEdit(e, false)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
-                            <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'Saving...' : 'Save Copy'}
-                        </button>
-                        <button onClick={(e) => saveEdit(e, true)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') === 'true' ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
-                            <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') === 'true' ? 'Saving...' : 'Overwrite'}
-                        </button>
-                    </div>
+                    {isEditing && (
+                        <div className="flex items-center justify-center gap-2 pt-1 px-2 border-t border-neutral-800">
+                            <button onClick={cancelEdit} disabled={isSaving} className="px-3 py-1.5 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm">
+                                <XIcon size={14} /> Cancel
+                            </button>
+                            <button onClick={(e) => saveEdit(e, false)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
+                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'Saving...' : 'Save Copy'}
+                            </button>
+                            <button onClick={(e) => saveEdit(e, true)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') === 'true' ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
+                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') === 'true' ? 'Saving...' : 'Overwrite'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -222,9 +222,9 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                             <div className="flex items-center justify-between gap-4">
                                 <div className="flex-1">
-                                    <h4 className="text-white font-medium mb-1">Default Crop Save Action</h4>
+                                    <h4 className="text-white font-medium mb-1">Default Edit Save Action</h4>
                                     <p className="text-sm text-gray-400">
-                                        Select the default behavior when pressing Enter to save a crop.
+                                        Select the default behavior when pressing Enter to save an edit.
                                     </p>
                                 </div>
                                 <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
@@ -386,7 +386,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                 <div className="text-sm text-gray-400 space-y-2 flex-1 relative">
                                     <div className="flex justify-between">
                                         <p><span className="text-gray-300 font-medium">App Name:</span> YiziView</p>
-                                        <p><span className="text-gray-300 font-medium">Version:</span> 0.8.4</p>
+                                        <p><span className="text-gray-300 font-medium">Version:</span> {__APP_VERSION__}</p>
                                     </div>
 
                                     {updateMessage && (
