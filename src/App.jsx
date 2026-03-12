@@ -63,7 +63,15 @@ function App() {
   const handleAddPanel = () => {
     if (panels.length >= 3) return;
 
-    const newPanelId = `panel-${panels.length + 1}`;
+    const usedIds = new Set(panels.map(p => p.id));
+    let newPanelId = 'panel-1';
+    for (let i = 1; i <= 3; i++) {
+      if (!usedIds.has(`panel-${i}`)) {
+        newPanelId = `panel-${i}`;
+        break;
+      }
+    }
+
     setPanels([...panels, { id: newPanelId }]);
     setActivePanelId(newPanelId);
   };
@@ -129,7 +137,18 @@ function App() {
       const session = await ConfigManager.getSession();
       if (session) {
         if (session.layout) setLayout(session.layout);
-        if (session.panels && Array.isArray(session.panels)) setPanels(session.panels);
+        if (session.panels && Array.isArray(session.panels)) {
+          // Sanitize duplicate panel IDs that might have been saved in previous buggy sessions
+          const uniquePanels = [];
+          const seen = new Set();
+          session.panels.forEach(p => {
+            if (!seen.has(p.id)) {
+              seen.add(p.id);
+              uniquePanels.push(p);
+            }
+          });
+          setPanels(uniquePanels);
+        }
         if (session.activePanelId) setActivePanelId(session.activePanelId);
 
         // Restore paths

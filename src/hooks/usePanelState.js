@@ -48,6 +48,8 @@ export const usePanelState = (panelId) => {
                 debounceTimer = setTimeout(async () => {
                     const updatedImages = await FileSystem.scanFolder(currentFolder, panelId);
                     setImages(applySort(updatedImages));
+                    setSelectedIndices(new Set());
+                    setLastSelectedIndex(null);
                     debounceTimer = null;
                 }, 200);
             }

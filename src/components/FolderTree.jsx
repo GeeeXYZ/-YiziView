@@ -14,8 +14,19 @@ import {
     Scissors,
     Clipboard,
     FileInput,
-    RefreshCw
+    RefreshCw,
+    Palette,
+    XCircle
 } from 'lucide-react';
+
+const FOLDER_COLORS = [
+    { name: 'none', color: 'bg-transparent', hex: '' },
+    { name: 'red', color: 'bg-red-500', hex: '#ef4444' },
+    { name: 'yellow', color: 'bg-yellow-500', hex: '#eab308' },
+    { name: 'green', color: 'bg-green-500', hex: '#22c55e' },
+    { name: 'blue', color: 'bg-blue-500', hex: '#3b82f6' },
+    { name: 'purple', color: 'bg-purple-500', hex: '#a855f7' },
+];
 
 const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, setConfirmModal, refreshTrigger, searchQuery = '' }) => {
     const { expandedSet, setFolderExpanded } = useExpandedFolders() || {};
@@ -40,6 +51,39 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     const [modalConfig, setModalConfig] = useState(null); // { type: 'create'|'rename', ... }
     const [isDragOver, setIsDragOver] = useState(false);
     const [isCut, setIsCut] = useState(false);
+
+    // --- Folder Color State ---
+    const [folderColor, setFolderColor] = useState(null);
+
+    useEffect(() => {
+        const updateColor = () => {
+            try {
+                const colors = JSON.parse(localStorage.getItem('yizi_folder_colors') || '{}');
+                setFolderColor(colors[path] || null);
+            } catch (e) {
+                setFolderColor(null);
+            }
+        };
+        updateColor();
+        window.addEventListener('folder-colors-updated', updateColor);
+        return () => window.removeEventListener('folder-colors-updated', updateColor);
+    }, [path]);
+
+    const handleSetColor = (colorHex) => {
+        try {
+            const colors = JSON.parse(localStorage.getItem('yizi_folder_colors') || '{}');
+            if (!colorHex) {
+                delete colors[path];
+            } else {
+                colors[path] = colorHex;
+            }
+            localStorage.setItem('yizi_folder_colors', JSON.stringify(colors));
+            window.dispatchEvent(new Event('folder-colors-updated'));
+        } catch (e) {
+            console.error('Failed to save folder color', e);
+        }
+        setContextMenu(null);
+    };
 
     useEffect(() => {
         const checkCutState = (clipboard) => {
@@ -434,12 +478,19 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 </div>
 
                 {/* Icon */}
-                <span className={`mr-2 ${isSelected ? 'text-blue-400' : 'text-yellow-500/80'}`}>
+                <span className={`mr-1.5 ${isSelected ? 'text-blue-400' : 'text-yellow-500/80'}`}>
                     {isExpanded ? <FolderOpen size={16} fill="currentColor" fillOpacity={0.2} /> : <Folder size={16} fill="currentColor" fillOpacity={0.2} />}
                 </span>
 
                 {/* Name */}
-                <span className="truncate flex-1 min-w-0" title={name}>{name}</span>
+                <div className={`flex items-center truncate flex-1 min-w-0 ${folderColor ? 'px-1.5 py-0.5 rounded shadow-sm border' : ''}`}
+                    style={folderColor ? {
+                        backgroundColor: `${folderColor}25`,
+                        borderColor: `${folderColor}40`,
+                        color: '#e5e7eb' // subtle light text
+                    } : {}}>
+                    <span className="truncate" title={name}>{name}</span>
+                </div>
             </div>
 
             {/* Subfolders */}
@@ -476,6 +527,27 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                     y={contextMenu.y}
                     onClose={() => setContextMenu(null)}
                     options={[
+                        {
+                            type: 'custom',
+                            render: () => (
+                                <div className="px-3 py-2">
+                                    <div className="text-xs text-gray-500 mb-2 px-1 font-medium flex items-center gap-1"><Palette size={12} /> Color Tag</div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        {FOLDER_COLORS.map(color => (
+                                            <button
+                                                key={color.name}
+                                                onClick={(e) => { e.stopPropagation(); handleSetColor(color.hex); }}
+                                                title={color.name}
+                                                className={`w-5 h-5 rounded-full border flex items-center justify-center transition-transform hover:scale-110 shrink-0 ${color.color} ${!color.hex ? 'border-neutral-600 bg-neutral-800' : 'border-transparent'} ${folderColor === color.hex ? 'ring-2 ring-white scale-110' : ''}`}
+                                            >
+                                                {!color.hex && <XCircle size={14} className="text-gray-400" />}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )
+                        },
+                        { type: 'divider' },
                         { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => handleMenuOption('refresh') },
                         { label: 'New Subfolder', icon: <Plus size={14} />, onClick: () => handleMenuOption('create') },
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleMenuOption('cut') },

@@ -32,6 +32,10 @@ const ContextMenu = ({ x, y, options, onClose }) => {
                     return <div key={index} className="h-px bg-neutral-700 my-1 mx-1" />;
                 }
 
+                if (option.type === 'custom') {
+                    return <div key={index}>{option.render()}</div>;
+                }
+
                 const isDisabled = option.disabled;
 
                 return (
