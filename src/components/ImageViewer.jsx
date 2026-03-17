@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Eye, EyeOff } from 'lucide-react';
+import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Eye, EyeOff, SlidersHorizontal, ArrowUpFromLine, GripHorizontal } from 'lucide-react';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import { SelectiveWebGLFilter } from '../utils/SelectiveWebGLFilter';
 
 const rotateSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="black" stroke-width="4" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="black" stroke-width="4" d="M21 3v5h-5"/><path stroke="white" stroke-width="2" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="white" stroke-width="2" d="M21 3v5h-5"/></svg>';
 const rotateCursorIcon = `url('data:image/svg+xml;charset=utf-8,${encodeURIComponent(rotateSvg)}') 12 12, auto`;
@@ -10,6 +11,63 @@ const BRUSH_COLORS = [
     '#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF',
     '#5856D6', '#AF52DE', '#FF2D55', '#FFFFFF', '#000000',
 ];
+
+const ColorWheel = ({ label, value, onChange }) => {
+    const wheelRef = useRef(null);
+
+    const handlePointerMap = useCallback((e) => {
+        if (!wheelRef.current) return;
+        const rect = wheelRef.current.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const r = rect.width / 2;
+        
+        let dx = (e.clientX - cx) / r;
+        let dy = (e.clientY - cy) / r;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 1) {
+            dx /= dist;
+            dy /= dist;
+        }
+        onChange({ x: dx, y: dy });
+    }, [onChange]);
+
+    const handlePointerDown = (e) => {
+        e.preventDefault();
+        wheelRef.current.setPointerCapture(e.pointerId);
+        handlePointerMap(e);
+    };
+
+    const handlePointerMove = (e) => {
+        if (e.buttons > 0) {
+            handlePointerMap(e);
+        }
+    };
+
+    return (
+        <div className="flex flex-col items-center gap-1.5 flex-1">
+            <span className="text-[10px] text-gray-400 font-medium">{label}</span>
+            <div 
+                ref={wheelRef}
+                className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] cursor-crosshair touch-none flex-shrink-0"
+                style={{ 
+                    background: 'conic-gradient(from 90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+                }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+            >
+                <div className="absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle closest-side, #222222 0%, transparent 100%)' }} />
+                <div className="absolute top-1/2 left-0 w-full h-px bg-white/10 pointer-events-none" />
+                <div className="absolute left-1/2 top-0 w-px h-full bg-white/10 pointer-events-none" />
+                
+                <div 
+                    className="absolute w-3 h-3 border border-white rounded-full shadow-sm bg-black/20 pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
+                    style={{ left: `${50 + value.x * 50}%`, top: `${50 + value.y * 50}%` }}
+                />
+            </div>
+        </div>
+    );
+};
 
 const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [zoom, setZoom] = useState(1);
@@ -21,9 +79,38 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     // ===== Edit Mode =====
     const [showToolbar, setShowToolbar] = useState(true);
     const [isEditing, setIsEditing] = useState(false); // Only true when brush/crop is actively selected
-    const [editTool, setEditTool] = useState(null); // null | 'brush' | 'crop'
+    const [editTool, setEditTool] = useState(null); // null | 'brush' | 'crop' | 'adjust'
 
     const isVideo = image?.path && /\.(mp4|webm|mov|mkv)$/i.test(image.path);
+
+    // ===== Adjust State =====
+    const [adjustBrightness, setAdjustBrightness] = useState(100);
+    const [adjustContrast, setAdjustContrast] = useState(100);
+    const [adjustSaturation, setAdjustSaturation] = useState(100);
+    const [adjustHue, setAdjustHue] = useState(0);
+    const [selectiveSat, setSelectiveSat] = useState({
+        reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0
+    });
+    const [gradingShadows, setGradingShadows] = useState({x: 0, y: 0});
+    const [gradingMidtones, setGradingMidtones] = useState({x: 0, y: 0});
+    const [gradingHighlights, setGradingHighlights] = useState({x: 0, y: 0});
+    const [gradingIntensity, setGradingIntensity] = useState(() => localStorage.getItem('settings_grading_intensity') || '36');
+    const [gradingPresets, setGradingPresets] = useState(() => JSON.parse(localStorage.getItem('settings_grading_presets') || '[null, null, null, null]'));
+    const [justSavedPreset, setJustSavedPreset] = useState(null);
+    const [renamingPreset, setRenamingPreset] = useState(null);
+    const [renameValue, setRenameValue] = useState("");
+    
+    const [previewObjectURL, setPreviewObjectURL] = useState(null);
+    const webGLFilterRef = useRef(null);
+    
+    // Listen for setting changes
+    useEffect(() => {
+        const handleSettingsUpdate = () => {
+            setGradingIntensity(localStorage.getItem('settings_grading_intensity') || '36');
+        };
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        return () => window.removeEventListener('settings-updated', handleSettingsUpdate);
+    }, []);
 
     // ===== Brush State =====
     const [brushColor, setBrushColor] = useState('#FF3B30');
@@ -54,6 +141,46 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
     const dragStartRef = useRef({ x: 0, y: 0 });
     const onNextRef = useRef(onNext);
+
+    // ===== Action Bar Drag State =====
+    const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+    const toolbarDragStartRef = useRef(null);
+
+    const handleToolbarPointerDown = (e) => {
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        
+        toolbarDragStartRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            initialX: toolbarPos.x,
+            initialY: toolbarPos.y
+        };
+        window.addEventListener('pointermove', handleToolbarPointerMove);
+        window.addEventListener('pointerup', handleToolbarPointerUp);
+    };
+
+    const handleToolbarPointerMove = (e) => {
+        if (!toolbarDragStartRef.current) return;
+        const dx = e.clientX - toolbarDragStartRef.current.startX;
+        const dy = e.clientY - toolbarDragStartRef.current.startY;
+        setToolbarPos({
+            x: toolbarDragStartRef.current.initialX + dx,
+            y: toolbarDragStartRef.current.initialY + dy
+        });
+    };
+
+    const handleToolbarPointerUp = () => {
+        toolbarDragStartRef.current = null;
+        window.removeEventListener('pointermove', handleToolbarPointerMove);
+        window.removeEventListener('pointerup', handleToolbarPointerUp);
+    };
+
+    useEffect(() => {
+        return () => {
+            window.removeEventListener('pointermove', handleToolbarPointerMove);
+            window.removeEventListener('pointerup', handleToolbarPointerUp);
+        };
+    }, []);
 
     const getActiveUrl = () => {
         if (forceImageUrl) return forceImageUrl;
@@ -148,6 +275,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 } else if (e.key.toLowerCase() === 'b') {
                     e.preventDefault();
                     switchTool('brush');
+                } else if (e.key.toLowerCase() === 'a') {
+                    e.preventDefault();
+                    switchTool('adjust');
                 }
             }
 
@@ -178,6 +308,16 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setIsEditing(false);
         setRotation(0);
         setCropBgColor('#FAFAFA');
+
+        setAdjustBrightness(100);
+        setAdjustContrast(100);
+        setAdjustSaturation(100);
+        setAdjustHue(0);
+        setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
+        setGradingShadows({x: 0, y: 0});
+        setGradingMidtones({x: 0, y: 0});
+        setGradingHighlights({x: 0, y: 0});
+        setPreviewObjectURL(null);
 
         const savedAspect = localStorage.getItem('last_crop_aspect');
         const savedTargetW = localStorage.getItem('last_crop_target_w') || '';
@@ -247,8 +387,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             }, 50);
         };
         img.onerror = () => console.error('Failed to load image for rotation');
-        img.src = getActiveUrl();
-    }, [isEditing, editTool, image, forceImageUrl]);
+        img.src = previewObjectURL || getActiveUrl();
+    }, [isEditing, editTool, image, forceImageUrl, previewObjectURL]);
 
     const drawRotatedCanvas = () => {
         if (!baseImageRef.current || !imgRef.current) return;
@@ -272,12 +412,79 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         canvas.height = ch;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
+        
+        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+        if (hasAdjustments) {
+            ctx.filter = `brightness(${adjustBrightness}%) contrast(${adjustContrast}%) saturate(${adjustSaturation}%) hue-rotate(${adjustHue}deg)`;
+        }
+
         ctx.translate(cw / 2, ch / 2);
         ctx.rotate(rad);
         ctx.drawImage(img, -img.width / 2, -img.height / 2);
     };
 
-    useEffect(() => { drawRotatedCanvas(); }, [rotation]);
+    useEffect(() => { drawRotatedCanvas(); }, [rotation, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, previewObjectURL]);
+
+    // ===== Selective Saturation Preview Generate =====
+    const updateSelectivePreview = useCallback(() => {
+        const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
+        const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
+        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+        
+        if (!hasSelective && !hasGrading && !hasAdjustments) {
+            setPreviewObjectURL(null);
+            return;
+        }
+        
+        if (!webGLFilterRef.current) {
+            try {
+                webGLFilterRef.current = new SelectiveWebGLFilter(4096, 4096);
+            } catch (e) {
+                console.error("WebGL Filter Error:", e);
+                return;
+            }
+        }
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const options = {
+                brightness: adjustBrightness,
+                contrast: adjustContrast,
+                saturation: adjustSaturation,
+                hue: adjustHue,
+                selectiveSat,
+                gradingShadows,
+                gradingMidtones,
+                gradingHighlights,
+                gradingIntensity
+            };
+            const canvas = webGLFilterRef.current.render(img, options);
+            if (!canvas) return;
+            
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                setPreviewObjectURL(prev => {
+                    if (prev) URL.revokeObjectURL(prev);
+                    return url;
+                });
+            }, 'image/jpeg', 0.90);
+        };
+        img.src = getActiveUrl();
+    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, image]);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+             updateSelectivePreview();
+        }, 30);
+        return () => clearTimeout(t);
+    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, updateSelectivePreview]);
+
+    useEffect(() => {
+        return () => {
+           if (previewObjectURL) URL.revokeObjectURL(previewObjectURL);
+        }
+    }, [previewObjectURL]);
 
     // ===== Drawing Canvas Setup =====
     const setupDrawCanvas = useCallback(() => {
@@ -439,7 +646,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     // ===== Zoom Handler =====
     useEffect(() => {
         const handleWheel = (e) => {
-            if (isEditing) return;
+            if (isEditing && editTool !== 'adjust') return;
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 const delta = e.deltaY * -0.001;
@@ -452,7 +659,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
     // ===== Drag Handlers (non-edit mode) =====
     const handleMouseDown = (e) => {
-        if (isEditing) return;
+        if (isEditing && editTool !== 'adjust') return;
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
@@ -461,7 +668,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     };
 
     const handleMouseMove = (e) => {
-        if (!isDragging || isEditing) return;
+        if (!isDragging || (isEditing && editTool !== 'adjust')) return;
         e.preventDefault();
         setPosition({ x: e.clientX - dragStartRef.current.x, y: e.clientY - dragStartRef.current.y });
     };
@@ -486,6 +693,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             setShowToolbar(false);
             setIsEditing(false);
             setEditTool(null);
+            
+            // Revert adjust tools on close 
+            setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0);
+            setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
+            setGradingShadows({x: 0, y: 0}); setGradingMidtones({x: 0, y: 0}); setGradingHighlights({x: 0, y: 0});
+            setPreviewObjectURL(null);
         } else {
             setIsAutoPlay(false);
             setShowToolbar(true);
@@ -501,6 +714,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setEditTool(null);
         setRotation(0);
         drawHistoryRef.current = [];
+        
+        // Restore values
+        setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0);
+        setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
+        setGradingShadows({x: 0, y: 0}); setGradingMidtones({x: 0, y: 0}); setGradingHighlights({x: 0, y: 0});
+        setPreviewObjectURL(null);
     };
 
     const switchTool = (tool) => {
@@ -610,15 +829,44 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             const hasDrawing = drawHistoryRef.current.length > 0;
             const hasCropParams = percentCropRef.current && (percentCropRef.current.width < 100 || percentCropRef.current.height < 100 || percentCropRef.current.x > 0 || percentCropRef.current.y > 0);
             const hasCropOrRotation = editTool === 'crop' && (rotation !== 0 || hasCropParams);
+            const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+            const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
+            const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
 
-            if (!hasDrawing && !hasCropOrRotation) {
+            if (!hasDrawing && !hasCropOrRotation && !hasAdjustments && !hasSelective && !hasGrading) {
                 cancelEdit(e);
                 setIsSaving(false);
                 return;
             }
 
-            if (hasDrawing && !hasCropOrRotation) {
-                // Drawing only: composite drawing onto full-res image client-side
+            const renderBaseAndAdjustments = (canvasCtx, srcImg) => {
+                if (hasSelective || hasAdjustments || hasGrading) {
+                    if (!webGLFilterRef.current) webGLFilterRef.current = new SelectiveWebGLFilter(8192, 8192);
+                    
+                    const options = {
+                        brightness: adjustBrightness,
+                        contrast: adjustContrast,
+                        saturation: adjustSaturation,
+                        hue: adjustHue,
+                        selectiveSat,
+                        gradingShadows,
+                        gradingMidtones,
+                        gradingHighlights
+                    };
+                    const outCanvas = webGLFilterRef.current.render(srcImg, options);
+                    
+                    if (outCanvas) {
+                        canvasCtx.drawImage(outCanvas, 0, 0, srcImg.naturalWidth, srcImg.naturalHeight);
+                    } else {
+                        canvasCtx.drawImage(srcImg, 0, 0); // fallback if webgl fails
+                    }
+                } else {
+                    canvasCtx.drawImage(srcImg, 0, 0);
+                }
+            };
+
+            if ((hasDrawing || hasAdjustments || hasSelective || hasGrading) && !hasCropOrRotation) {
+                // Drawing or adjustments only: composite onto full-res image client-side
                 const fullImg = new Image();
                 fullImg.crossOrigin = 'anonymous';
                 await new Promise((resolve, reject) => {
@@ -631,12 +879,15 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 mergeCanvas.width = fullImg.naturalWidth;
                 mergeCanvas.height = fullImg.naturalHeight;
                 const ctx = mergeCanvas.getContext('2d');
-                ctx.drawImage(fullImg, 0, 0);
+                
+                renderBaseAndAdjustments(ctx, fullImg);
 
                 // Scale the drawing to full resolution
-                const drawCanvas = drawCanvasRef.current;
-                if (drawCanvas && drawCanvas.width > 0) {
-                    ctx.drawImage(drawCanvas, 0, 0, mergeCanvas.width, mergeCanvas.height);
+                if (hasDrawing) {
+                    const drawCanvas = drawCanvasRef.current;
+                    if (drawCanvas && drawCanvas.width > 0) {
+                        ctx.drawImage(drawCanvas, 0, 0, mergeCanvas.width, mergeCanvas.height);
+                    }
                 }
 
                 const dataUrl = mergeCanvas.toDataURL('image/png');
@@ -685,7 +936,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     isReverseCrop = cx < 0 || cy < 0 || (cx + cw) > natW || (cy + ch) > natH;
                 }
 
-                if (!hasDrawing && !isReverseCrop) {
+                if (!hasDrawing && !isReverseCrop && !hasAdjustments && !hasSelective && !hasGrading) {
                     // Normal Crop/rotate only: use existing backend if within bounds
                     if (cw <= 0 || ch <= 0) {
                         cancelEdit(e);
@@ -726,12 +977,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         fullImg.src = getActiveUrl();
                     });
 
-                    // Step 1: Draw original + brush strokes
+                    // Step 1: Draw original + brush strokes (and apply adjustments if any)
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = fullImg.naturalWidth;
                     tempCanvas.height = fullImg.naturalHeight;
                     const tmpCtx = tempCanvas.getContext('2d');
-                    tmpCtx.drawImage(fullImg, 0, 0);
+                    
+                    renderBaseAndAdjustments(tmpCtx, fullImg);
+
                     if (hasDrawing) {
                         const drawCanvas = drawCanvasRef.current;
                         if (drawCanvas && drawCanvas.width > 0) {
@@ -870,13 +1123,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     />
                 ) : (
                     <div style={{
-                        transform: !isEditing ? `translate(${position.x}px, ${position.y}px) scale(${zoom})` : 'none',
+                        transform: (!isEditing || editTool === 'adjust') ? `translate(${position.x}px, ${position.y}px) scale(${zoom})` : 'none',
                         transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                        cursor: isDragging ? 'grabbing' : (isEditing ? (editTool === 'brush' ? 'crosshair' : hoverCursor) : 'grab'),
+                        cursor: isDragging ? 'grabbing' : ((isEditing && editTool !== 'adjust') ? (editTool === 'brush' ? 'crosshair' : hoverCursor) : 'grab'),
                     }}
                         className="pointer-events-auto h-full w-full flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        onMouseDown={!isEditing ? handleMouseDown : undefined}
+                        onMouseDown={(!isEditing || editTool === 'adjust') ? handleMouseDown : undefined}
                         onPointerMove={(e) => {
                             if (!isEditing || editTool !== 'crop' || isArbitraryRotating) return;
                             if (e.target.closest('.ReactCrop__crop-selection') || e.target.closest('.ReactCrop__drag-elements') || e.target.closest('.edit-action-bar')) {
@@ -996,19 +1249,29 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                             </ReactCrop>
                         ) : (
                             <div className="relative w-full h-full flex items-center justify-center">
-                                <img
-                                    ref={imgRef}
-                                    src={getActiveUrl()}
-                                    alt={image.name}
-                                    style={{
-                                        maxWidth: isEditing ? 'calc(100vw - 4rem)' : '100vw',
-                                        maxHeight: isEditing ? 'calc(100vh - 12rem)' : '100vh',
-                                        width: '100%',
-                                        height: '100%'
-                                    }}
-                                    className="object-contain select-none block"
-                                    onLoad={isEditing && editTool === 'brush' ? setupDrawCanvas : undefined}
-                                />
+                                {(() => {
+                                    const hasSelectiveOn = Object.values(selectiveSat).some(v => v !== 0);
+                                    const hasGradingOn = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
+                                    const hasAdjustmentsOn = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+                                    const hasAdvanced = hasSelectiveOn || hasGradingOn || hasAdjustmentsOn;
+                                    
+                                    return (
+                                        <img
+                                            ref={imgRef}
+                                            src={previewObjectURL || getActiveUrl()}
+                                            alt={image.name}
+                                            style={{
+                                                maxWidth: (isEditing && editTool !== 'adjust') ? 'calc(100vw - 4rem)' : '100vw',
+                                                maxHeight: (isEditing && editTool !== 'adjust') ? 'calc(100vh - 12rem)' : '100vh',
+                                                width: '100%',
+                                                height: '100%',
+                                                filter: hasAdvanced ? 'none' : `brightness(${adjustBrightness}%) contrast(${adjustContrast}%) saturate(${adjustSaturation}%) hue-rotate(${adjustHue}deg)`
+                                            }}
+                                            className="object-contain select-none block"
+                                            onLoad={isEditing && editTool === 'brush' ? setupDrawCanvas : undefined}
+                                        />
+                                    );
+                                })()}
                                 {/* Drawing Canvas Overlay - matches image exactly */}
                                 {isEditing && editTool === 'brush' && (
                                     <canvas
@@ -1026,9 +1289,22 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
             {/* ===== Action Bar ===== */}
             {showToolbar && !isVideo && (
-                <div className="edit-action-bar absolute bottom-10 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur border border-neutral-700 p-2 rounded-xl flex flex-col gap-2 shadow-2xl z-[80] transition-colors max-w-[95vw]" onClick={(e) => e.stopPropagation()}>
+                <div 
+                    className="edit-action-bar absolute bottom-10 left-1/2 bg-neutral-900/95 backdrop-blur border border-neutral-700 p-2 rounded-xl flex flex-col gap-2 shadow-2xl z-[80] transition-colors max-w-[98vw]" 
+                    style={{ transform: `translate(calc(-50% + ${toolbarPos.x}px), ${toolbarPos.y}px)` }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* Drag Handle */}
+                    <div 
+                        className="w-full flex justify-center py-1 cursor-move text-neutral-600 hover:text-neutral-400 transition-colors"
+                        onPointerDown={handleToolbarPointerDown}
+                        title="Drag to move toolbar"
+                    >
+                        <GripHorizontal size={16} />
+                    </div>
+
                     {/* Tool Tabs */}
-                    <div className="flex items-center justify-center gap-1 pb-2 border-b border-neutral-800 px-2">
+                    <div className="flex items-center justify-center gap-1 pb-2 border-b border-neutral-800 px-2" onPointerDown={(e) => { if (!e.target.closest('button')) handleToolbarPointerDown(e); }}>
                         <button
                             onClick={() => switchTool('crop')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'crop' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
@@ -1040,6 +1316,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'brush' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
                         >
                             <Paintbrush size={14} /> Brush <span className="opacity-50 font-normal ml-0.5">(B)</span>
+                        </button>
+                        <button
+                            onClick={() => switchTool('adjust')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'adjust' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
+                        >
+                            <SlidersHorizontal size={14} /> Adjust <span className="opacity-50 font-normal ml-0.5">(A)</span>
                         </button>
                     </div>
 
@@ -1158,6 +1440,254 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                     <RotateCw size={16} />
                                 </button>
                                 <span className="text-gray-500 text-xs px-2 whitespace-nowrap hidden md:inline">Drag outside to rotate freely</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Adjust Tool Options */}
+                    {editTool === 'adjust' && (
+                        <div className="flex gap-6 px-4 py-4 mx-auto justify-center w-max max-w-[98vw] overflow-x-auto overflow-y-hidden">
+                            
+                            {/* Left Column (Basic & Selective) */}
+                            <div className="flex flex-col gap-3 w-[400px] sm:w-[460px] flex-shrink-0">
+                                {/* Brightness */}
+                                <div className="flex items-center gap-3">
+                                    <span className="text-gray-400 text-xs w-16">Brightness</span>
+                                    <input
+                                        type="range" min="0" max="200"
+                                        value={adjustBrightness} onChange={(e) => setAdjustBrightness(Number(e.target.value))}
+                                        className="flex-1 h-1 accent-blue-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number" min="0" max="200"
+                                        value={adjustBrightness} onChange={(e) => setAdjustBrightness(Number(e.target.value))}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+                                
+                                {/* Contrast */}
+                                <div className="flex items-center gap-3">
+                                    <span className="text-gray-400 text-xs w-16">Contrast</span>
+                                    <input
+                                        type="range" min="0" max="200"
+                                        value={adjustContrast} onChange={(e) => setAdjustContrast(Number(e.target.value))}
+                                        className="flex-1 h-1 accent-blue-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number" min="0" max="200"
+                                        value={adjustContrast} onChange={(e) => setAdjustContrast(Number(e.target.value))}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+
+                                {/* Saturation */}
+                                <div className="flex items-center gap-3">
+                                    <span className="text-gray-400 text-xs w-16">Saturation</span>
+                                    <input
+                                        type="range" min="0" max="200"
+                                        value={adjustSaturation} onChange={(e) => setAdjustSaturation(Number(e.target.value))}
+                                        className="flex-1 h-1 accent-blue-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number" min="0" max="200"
+                                        value={adjustSaturation} onChange={(e) => setAdjustSaturation(Number(e.target.value))}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+
+                                {/* Hue */}
+                                <div className="flex items-center gap-3">
+                                    <span className="text-gray-400 text-xs w-16">Hue</span>
+                                    <input
+                                        type="range" min="-180" max="180"
+                                        value={adjustHue} onChange={(e) => setAdjustHue(Number(e.target.value))}
+                                        className="flex-1 h-1 accent-blue-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number" min="-180" max="180"
+                                        value={adjustHue} onChange={(e) => setAdjustHue(Number(e.target.value))}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+
+                                {/* Basic Reset */}
+                                <div className="flex justify-end mt-1">
+                                    <button
+                                        onClick={() => { setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); }}
+                                        className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
+                                    >
+                                        <RotateCcw size={10} /> Reset Basic
+                                    </button>
+                                </div>
+
+                                <div className="w-full h-px bg-neutral-800 my-1" />
+                                
+                                <div className="flex items-center justify-between mb-1">
+                                    <div className="text-gray-400 text-xs font-medium">Selective Filter</div>
+                                    <button
+                                        onClick={() => setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 })}
+                                        className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
+                                    >
+                                        <RotateCcw size={10} /> Reset Selective
+                                    </button>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-2">
+                                    {[{key: 'reds', bg: 'bg-red-500'}, 
+                                      {key: 'yellows', bg: 'bg-yellow-500'}, 
+                                      {key: 'greens', bg: 'bg-green-500'}, 
+                                      {key: 'cyans', bg: 'bg-cyan-400'}, 
+                                      {key: 'blues', bg: 'bg-blue-500'}, 
+                                      {key: 'magentas', bg: 'bg-fuchsia-500'}].map(c => (
+                                        <div key={c.key} className="flex items-center gap-2.5 min-w-0">
+                                            <div 
+                                                className={`w-3 h-3 rounded-full flex-shrink-0 ${c.bg} shadow-[0_0_2px_rgba(0,0,0,0.5)]`} 
+                                                title={c.key.charAt(0).toUpperCase() + c.key.slice(1)} 
+                                            />
+                                            <input
+                                                type="range" min="-100" max="100"
+                                                value={selectiveSat[c.key]} onChange={(e) => setSelectiveSat(s => ({...s, [c.key]: Number(e.target.value)}))}
+                                                className="flex-1 min-w-0 w-full h-1 accent-blue-500 cursor-pointer"
+                                            />
+                                            <input
+                                                type="number" min="-100" max="100"
+                                                value={selectiveSat[c.key]} onChange={(e) => setSelectiveSat(s => ({...s, [c.key]: Number(e.target.value)}))}
+                                                className="w-10 bg-neutral-800 text-gray-300 text-[10px] px-0.5 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            {/* Divider */}
+                            <div className="w-px bg-neutral-800 self-stretch my-2 hidden sm:block" />
+
+                            {/* Right Column (Three-Way Grading) */}
+                            <div className="flex flex-col w-[280px] sm:w-[340px] justify-center flex-shrink-0">
+                                <div className="flex items-center justify-between mb-3 px-1">
+                                    <div className="text-gray-400 text-xs font-medium">Color Grading</div>
+                                    <button
+                                        onClick={() => { setGradingShadows({x: 0, y: 0}); setGradingMidtones({x: 0, y: 0}); setGradingHighlights({x: 0, y: 0}); }}
+                                        className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
+                                    >
+                                        <RotateCcw size={10} /> Reset Grading
+                                    </button>
+                                </div>
+                                
+                                <div className="flex items-center justify-between gap-1 sm:gap-2 px-1 w-full relative h-[120px]">
+                                    <ColorWheel label="Shadows" value={gradingShadows} onChange={setGradingShadows} />
+                                    <ColorWheel label="Midtones" value={gradingMidtones} onChange={setGradingMidtones} />
+                                    <ColorWheel label="Highlights" value={gradingHighlights} onChange={setGradingHighlights} />
+                                </div>
+
+                                {/* Preset Slots */}
+                                <div className="flex flex-col gap-1.5 px-3 mt-4 mb-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-gray-500 font-medium tracking-wide">PRESETS</span>
+                                        <span className="text-[9px] text-gray-600">L: Load | R: Save | Dbl: Rename</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {[0, 1, 2, 3].map(index => {
+                                            const isSaved = gradingPresets[index] !== null;
+                                            const displayName = isSaved && gradingPresets[index].name ? gradingPresets[index].name : (index + 1).toString();
+                                            
+                                            if (renamingPreset === index) {
+                                                return (
+                                                    <input
+                                                        key={index}
+                                                        autoFocus
+                                                        value={renameValue}
+                                                        onChange={(e) => setRenameValue(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                const newPresets = [...gradingPresets];
+                                                                if (newPresets[index]) {
+                                                                    newPresets[index].name = renameValue.trim();
+                                                                    setGradingPresets(newPresets);
+                                                                    localStorage.setItem('settings_grading_presets', JSON.stringify(newPresets));
+                                                                }
+                                                                setRenamingPreset(null);
+                                                            } else if (e.key === 'Escape') {
+                                                                setRenamingPreset(null);
+                                                            }
+                                                            e.stopPropagation();
+                                                        }}
+                                                        onBlur={() => {
+                                                            const newPresets = [...gradingPresets];
+                                                            if (newPresets[index]) {
+                                                                newPresets[index].name = renameValue.trim();
+                                                                setGradingPresets(newPresets);
+                                                                localStorage.setItem('settings_grading_presets', JSON.stringify(newPresets));
+                                                            }
+                                                            setRenamingPreset(null);
+                                                        }}
+                                                        className="flex-1 w-0 h-7 rounded text-[10px] font-medium transition-all duration-200 border bg-neutral-800 text-white border-blue-500 text-center focus:outline-none"
+                                                    />
+                                                );
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={index}
+                                                    onClick={() => {
+                                                        if (isSaved) {
+                                                            const preset = gradingPresets[index];
+                                                            setGradingShadows(preset.shadows);
+                                                            setGradingMidtones(preset.midtones);
+                                                            setGradingHighlights(preset.highlights);
+                                                        }
+                                                    }}
+                                                    onDoubleClick={() => {
+                                                        if (isSaved) {
+                                                            setRenameValue(gradingPresets[index].name || "");
+                                                            setRenamingPreset(index);
+                                                        }
+                                                    }}
+                                                    onContextMenu={(e) => {
+                                                        e.preventDefault();
+                                                        const newPresets = [...gradingPresets];
+                                                        newPresets[index] = {
+                                                            shadows: gradingShadows,
+                                                            midtones: gradingMidtones,
+                                                            highlights: gradingHighlights,
+                                                            name: isSaved ? gradingPresets[index].name : ""
+                                                        };
+                                                        setGradingPresets(newPresets);
+                                                        localStorage.setItem('settings_grading_presets', JSON.stringify(newPresets));
+                                                        
+                                                        setJustSavedPreset(index);
+                                                        setTimeout(() => setJustSavedPreset(null), 1000);
+                                                    }}
+                                                    className={`flex-1 flex items-center justify-center h-7 rounded text-[10px] font-medium transition-all duration-200 border overflow-hidden whitespace-nowrap px-1 ${
+                                                        justSavedPreset === index
+                                                            ? 'bg-green-500/20 text-green-400 border-green-500/50 scale-95'
+                                                            : isSaved 
+                                                                ? 'bg-neutral-800 text-blue-400 border-blue-500/30 hover:bg-neutral-700 hover:border-blue-400 cursor-pointer shadow-[0_0_8px_rgba(59,130,246,0.1)]' 
+                                                                : 'bg-neutral-900 text-gray-600 border-neutral-800 hover:bg-neutral-800 hover:border-neutral-700 cursor-pointer border-dashed'
+                                                    }`}
+                                                    title={isSaved ? "Left-click: Load\nRight-click: Overwrite\nDouble-click: Rename" : "Right-click: Save Current Setup"}
+                                                >
+                                                    {justSavedPreset === index ? <Check size={14} className="animate-in zoom-in duration-200 flex-shrink-0" /> : <span className="truncate w-full text-center">{displayName}</span>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-center mt-3 pt-2 border-t border-neutral-800/50">
+                                    <button
+                                        onClick={() => { 
+                                            setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); 
+                                            setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
+                                            setGradingShadows({x: 0, y: 0});
+                                            setGradingMidtones({x: 0, y: 0});
+                                            setGradingHighlights({x: 0, y: 0});
+                                        }}
+                                        className="text-[11px] text-red-500 hover:bg-red-500/10 hover:text-red-400 flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-md"
+                                    >
+                                        <RotateCcw size={11} /> Reset All Adjustments
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

@@ -8,6 +8,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [confirmDelete, setConfirmDelete] = useState(() => localStorage.getItem('settings_confirm_delete') !== 'false');
     const [cropOverwrite, setCropOverwrite] = useState(() => localStorage.getItem('settings_crop_overwrite') === 'true');
     const [thumbFit, setThumbFit] = useState(() => localStorage.getItem('settings_thumb_fit') || 'cover');
+    const [gradingIntensity, setGradingIntensity] = useState(() => localStorage.getItem('settings_grading_intensity') || '36');
 
     // Auto-update state
     const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, downloading, downloaded, error
@@ -254,6 +255,44 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                     >
                                         Overwrite
                                     </button>
+                                </div>
+                            </div>
+                            
+                            <hr className="border-neutral-700/50" />
+
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Color Grading Intensity Limit (%)</h4>
+                                    <p className="text-sm text-gray-400">
+                                        Limit the maximum strength of three-way color grading wheels to prevent over-editing.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="100"
+                                        value={gradingIntensity}
+                                        onChange={(e) => {
+                                            setGradingIntensity(e.target.value);
+                                            localStorage.setItem('settings_grading_intensity', e.target.value);
+                                            window.dispatchEvent(new CustomEvent('settings-updated'));
+                                        }}
+                                        className="w-24 h-1 accent-blue-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="100"
+                                        value={gradingIntensity}
+                                        onChange={(e) => {
+                                            setGradingIntensity(e.target.value);
+                                            localStorage.setItem('settings_grading_intensity', e.target.value);
+                                            window.dispatchEvent(new CustomEvent('settings-updated'));
+                                        }}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-blue-500"
+                                    />
+                                    <span className="text-xs text-gray-300 w-4 text-right">%</span>
                                 </div>
                             </div>
                         </div>
