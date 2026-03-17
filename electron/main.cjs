@@ -1517,10 +1517,10 @@ ipcMain.handle('clear-thumbnails-for-folder', async (event, folderPath) => {
   }
 });
 
-ipcMain.handle('export-tags', async () => {
+ipcMain.handle('export-settings', async (event, frontendSettings) => {
   const { filePath } = await dialog.showSaveDialog(mainWindow, {
-    title: 'Export Tags Data',
-    defaultPath: 'yiziview_tags_backup.json',
+    title: 'Export User Settings',
+    defaultPath: 'yiziview_settings_backup.json',
     filters: [{ name: 'JSON Files', extensions: ['json'] }]
   });
 
@@ -1533,19 +1533,31 @@ ipcMain.handle('export-tags', async () => {
     let fileTags = {};
     try { fileTags = JSON.parse(await fs.readFile(fileTagsPath, 'utf8')); } catch (e) { }
 
-    const exportData = { tags, fileTags };
+    let folders = [];
+    try { folders = JSON.parse(await fs.readFile(favoritesPath, 'utf8')); } catch (e) { }
+
+    let expandedFolders = [];
+    try { expandedFolders = JSON.parse(await fs.readFile(expandedFoldersPath, 'utf8')); } catch (e) { }
+
+    const exportData = {
+      tags,
+      fileTags,
+      folders,
+      expandedFolders,
+      frontendSettings: frontendSettings || {}
+    };
     await fs.writeFile(filePath, JSON.stringify(exportData, null, 2));
 
     return { success: true, path: filePath };
   } catch (error) {
-    console.error('Failed to export tags:', error);
+    console.error('Failed to export settings:', error);
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('import-tags', async () => {
+ipcMain.handle('import-settings', async () => {
   const { filePaths } = await dialog.showOpenDialog(mainWindow, {
-    title: 'Import Tags Data',
+    title: 'Import User Settings',
     filters: [{ name: 'JSON Files', extensions: ['json'] }],
     properties: ['openFile']
   });
@@ -1587,9 +1599,39 @@ ipcMain.handle('import-tags', async () => {
       await fs.writeFile(fileTagsPath, JSON.stringify(mergedFileTags, null, 2));
     }
 
-    return { success: true, count: (importData.tags?.length || 0) };
+    // Import Folders (Favorites)
+    if (importData.folders && Array.isArray(importData.folders)) {
+      let currentFolders = [];
+      try { currentFolders = JSON.parse(await fs.readFile(favoritesPath, 'utf8')); } catch (e) { }
+      const folderMap = new Map();
+      currentFolders.forEach(f => folderMap.set(f.path, f));
+      importData.folders.forEach(f => {
+        if (!folderMap.has(f.path)) {
+          folderMap.set(f.path, f);
+        }
+      });
+      await fs.writeFile(favoritesPath, JSON.stringify(Array.from(folderMap.values()), null, 2));
+    }
+
+    // Import Expanded Folders
+    if (importData.expandedFolders && Array.isArray(importData.expandedFolders)) {
+      let currentExpanded = new Set();
+      try { currentExpanded = new Set(JSON.parse(await fs.readFile(expandedFoldersPath, 'utf8'))); } catch (e) { }
+      importData.expandedFolders.forEach(f => currentExpanded.add(f));
+      
+      if (typeof expandedFoldersCache !== 'undefined') {
+        importData.expandedFolders.forEach(f => expandedFoldersCache.add(f));
+      }
+      await fs.writeFile(expandedFoldersPath, JSON.stringify(Array.from(currentExpanded), null, 2));
+    }
+
+    return { 
+      success: true, 
+      count: (importData.tags?.length || 0),
+      frontendSettings: importData.frontendSettings || null
+    };
   } catch (error) {
-    console.error('Failed to import tags:', error);
+    console.error('Failed to import settings:', error);
     return { success: false, error: error.message };
   }
 });

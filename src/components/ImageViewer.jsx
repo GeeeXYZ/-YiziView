@@ -3,7 +3,8 @@ import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
-const rotateCursorIcon = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="black" stroke-width="4" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="black" stroke-width="4" d="M21 3v5h-5"/><path stroke="white" stroke-width="2" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="white" stroke-width="2" d="M21 3v5h-5"/></svg>') 12 12, auto`;
+const rotateSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="black" stroke-width="4" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="black" stroke-width="4" d="M21 3v5h-5"/><path stroke="white" stroke-width="2" d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path stroke="white" stroke-width="2" d="M21 3v5h-5"/></svg>';
+const rotateCursorIcon = `url('data:image/svg+xml;charset=utf-8,${encodeURIComponent(rotateSvg)}') 12 12, auto`;
 
 const BRUSH_COLORS = [
     '#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF',
@@ -42,12 +43,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [targetH, setTargetH] = useState('');
     const [forceImageUrl, setForceImageUrl] = useState(null);
     const [rotation, setRotation] = useState(0);
+    const [cropBgColor, setCropBgColor] = useState('#FAFAFA');
     const imgRef = useRef(null);
     const [isArbitraryRotating, setIsArbitraryRotating] = useState(false);
     const [hoverCursor, setHoverCursor] = useState('default');
     const rotationDragStartRef = useRef({ angle: 0, initialRotation: 0 });
     const percentCropRef = useRef(null);
     const baseImageRef = useRef(null);
+    const saveEditRef = useRef(null);
 
     const dragStartRef = useRef({ x: 0, y: 0 });
     const onNextRef = useRef(onNext);
@@ -153,6 +156,15 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 e.preventDefault();
                 undoBrush();
             }
+
+            // Enter to save edit
+            if (isEditing && e.key === 'Enter') {
+                e.preventDefault();
+                const overwrite = localStorage.getItem('settings_crop_overwrite') === 'true';
+                if (saveEditRef.current) {
+                    saveEditRef.current(e, overwrite);
+                }
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
@@ -165,6 +177,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setEditTool(null);
         setIsEditing(false);
         setRotation(0);
+        setCropBgColor('#FAFAFA');
 
         const savedAspect = localStorage.getItem('last_crop_aspect');
         const savedTargetW = localStorage.getItem('last_crop_target_w') || '';
@@ -191,11 +204,47 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         img.onload = () => {
             baseImageRef.current = img;
             drawRotatedCanvas();
-            if (!percentCropRef.current || percentCropRef.current.width === 0) {
-                const initialCrop = { unit: '%', width: 100, height: 100, x: 0, y: 0 };
-                setCrop(initialCrop);
-                percentCropRef.current = initialCrop;
-            }
+            setTimeout(() => {
+                if (!imgRef.current || !imgRef.current.parentElement) return;
+                const pCrop = percentCropRef.current;
+                const needsInit = !pCrop || pCrop.width === 0 || (pCrop.width === 100 && pCrop.height === 100 && pCrop.x === 0 && pCrop.y === 0);
+                
+                if (needsInit) {
+                    const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+                    const imgRect = imgRef.current.getBoundingClientRect();
+                    
+                    let initWidthPx = imgRect.width;
+                    let initHeightPx = imgRect.height;
+                    
+                    let pxCrop;
+                    if (aspect) {
+                        initWidthPx = imgRect.width * 0.9;
+                        if (initWidthPx / aspect > imgRect.height) initWidthPx = imgRect.height * aspect;
+                        pxCrop = centerCrop(
+                            makeAspectCrop({ unit: 'px', width: initWidthPx }, aspect, wrapperRect.width, wrapperRect.height),
+                            wrapperRect.width, wrapperRect.height
+                        );
+                    } else {
+                        pxCrop = {
+                            x: imgRect.left - wrapperRect.left,
+                            y: imgRect.top - wrapperRect.top,
+                            width: initWidthPx,
+                            height: initHeightPx
+                        };
+                    }
+                    
+                    const newPercentCrop = {
+                        unit: '%',
+                        x: (pxCrop.x / wrapperRect.width) * 100,
+                        y: (pxCrop.y / wrapperRect.height) * 100,
+                        width: (pxCrop.width / wrapperRect.width) * 100,
+                        height: (pxCrop.height / wrapperRect.height) * 100
+                    };
+                    setCrop(newPercentCrop);
+                    setCompletedCrop(pxCrop);
+                    percentCropRef.current = newPercentCrop;
+                }
+            }, 50);
         };
         img.onerror = () => console.error('Failed to load image for rotation');
         img.src = getActiveUrl();
@@ -457,36 +506,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const switchTool = (tool) => {
         setIsEditing(true);
         setEditTool(tool);
-        // When switching specifically to crop, ensure crop state is valid
-        if (tool === 'crop' && imgRef.current) {
-            const { width, height } = imgRef.current;
-            if (width > 0 && height > 0) {
-                // If we have an aspect ratio, enforce it immediately
-                if (aspect) {
-                    let initWidth = width * 0.9;
-                    if (initWidth / aspect > height) initWidth = height * aspect;
-                    const newCrop = centerCrop(
-                        makeAspectCrop({ unit: 'px', width: initWidth }, aspect, width, height),
-                        width, height
-                    );
-                    const newPercentCrop = {
-                        unit: '%',
-                        x: (newCrop.x / width) * 100,
-                        y: (newCrop.y / height) * 100,
-                        width: (newCrop.width / width) * 100,
-                        height: (newCrop.height / height) * 100
-                    };
-                    setCrop(newPercentCrop);
-                    setCompletedCrop(newCrop);
-                    percentCropRef.current = newPercentCrop;
-                } else if (!crop || crop.width === 0 || crop.height === 0) {
-                    // fallback to 100% if no crop exists
-                    const resetCrop = { unit: '%', width: 100, height: 100, x: 0, y: 0 };
-                    setCrop(resetCrop);
-                    setCompletedCrop(null);
-                    percentCropRef.current = resetCrop;
-                }
-            }
+        if (tool === 'crop') {
+            // We defer initialization of crop sizes to the Rotation Canvas useEffect 
+            // since we need the ReactCrop wrapper to be fully mounted in the DOM.
         }
     };
 
@@ -516,28 +538,28 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             localStorage.removeItem('last_crop_target_h');
         }
 
-        if (imgRef.current && editTool === 'crop') {
-            const { width, height } = imgRef.current;
+        if (imgRef.current && imgRef.current.parentElement && editTool === 'crop') {
+            const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+            const imgRect = imgRef.current.getBoundingClientRect();
+            
             if (newAspect) {
-                let initWidth = completedCrop ? completedCrop.width : (width * 0.9);
-                if (initWidth / newAspect > height) initWidth = height * newAspect;
-                const newCrop = centerCrop(
-                    makeAspectCrop({ unit: 'px', width: initWidth }, newAspect, width, height),
-                    width, height
+                let initWidthPx = completedCrop ? completedCrop.width : (imgRect.width * 0.9);
+                if (initWidthPx / newAspect > imgRect.height) initWidthPx = imgRect.height * newAspect;
+                
+                const pxCrop = centerCrop(
+                    makeAspectCrop({ unit: 'px', width: initWidthPx }, newAspect, wrapperRect.width, wrapperRect.height),
+                    wrapperRect.width, wrapperRect.height
                 );
                 const newPercentCrop = {
                     unit: '%',
-                    x: (newCrop.x / width) * 100,
-                    y: (newCrop.y / height) * 100,
-                    width: (newCrop.width / width) * 100,
-                    height: (newCrop.height / height) * 100
+                    x: (pxCrop.x / wrapperRect.width) * 100,
+                    y: (pxCrop.y / wrapperRect.height) * 100,
+                    width: (pxCrop.width / wrapperRect.width) * 100,
+                    height: (pxCrop.height / wrapperRect.height) * 100
                 };
                 setCrop(newPercentCrop);
-                setCompletedCrop(newCrop);
+                setCompletedCrop(pxCrop);
                 percentCropRef.current = newPercentCrop;
-            } else {
-                // When switching to Free, keep current boundaries but just remove aspect constraint.
-                // Or if there is no crop, set to full size.
             }
         }
     };
@@ -574,15 +596,11 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         }
     };
 
-    const handleEditKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const overwrite = localStorage.getItem('settings_crop_overwrite') === 'true';
-            saveEdit(e, overwrite);
-        }
-    };
-
     // ===== Save Edit =====
+    useEffect(() => {
+        saveEditRef.current = saveEdit;
+    });
+
     const saveEdit = async (e, overwrite = false) => {
         if (e) e.stopPropagation();
         if (!image) return;
@@ -590,7 +608,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         setIsSaving(true);
         try {
             const hasDrawing = drawHistoryRef.current.length > 0;
-            const hasCropOrRotation = editTool === 'crop' && (rotation !== 0 || (percentCropRef.current && (percentCropRef.current.width < 100 || percentCropRef.current.height < 100 || percentCropRef.current.x > 0 || percentCropRef.current.y > 0)));
+            const hasCropParams = percentCropRef.current && (percentCropRef.current.width < 100 || percentCropRef.current.height < 100 || percentCropRef.current.x > 0 || percentCropRef.current.y > 0);
+            const hasCropOrRotation = editTool === 'crop' && (rotation !== 0 || hasCropParams);
+
+            if (!hasDrawing && !hasCropOrRotation) {
+                cancelEdit(e);
+                setIsSaving(false);
+                return;
+            }
 
             if (hasDrawing && !hasCropOrRotation) {
                 // Drawing only: composite drawing onto full-res image client-side
@@ -628,114 +653,145 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 } else {
                     alert('Save Failed: ' + result.error);
                 }
-            } else if (hasCropOrRotation && !hasDrawing) {
-                // Crop/rotate only: use existing backend
-                let activePercentCrop = percentCropRef.current || { x: 0, y: 0, width: 100, height: 100 };
-                if (activePercentCrop.width <= 0 || activePercentCrop.height <= 0) {
-                    cancelEdit(e);
-                    return;
+            } else if (hasCropOrRotation) {
+                // Calculate cx, cy, cw, ch mapped to the image's intrinsic coordinate space
+                let cx = 0, cy = 0, cw = 0, ch = 0;
+                let natW = 100, natH = 100;
+                let isReverseCrop = false;
+                
+                if (imgRef.current) {
+                    natW = imgRef.current.width;
+                    natH = imgRef.current.height;
+                    let activePercentCrop = percentCropRef.current || { x: 0, y: 0, width: 100, height: 100 };
+                    const imgRect = imgRef.current.getBoundingClientRect();
+                    const wrapperRect = imgRef.current.parentElement ? imgRef.current.parentElement.getBoundingClientRect() : imgRect;
+
+                    const scaleX = natW / imgRect.width;
+                    const scaleY = natH / imgRect.height;
+
+                    const cropClientX = wrapperRect.left + (activePercentCrop.x / 100) * wrapperRect.width;
+                    const cropClientY = wrapperRect.top + (activePercentCrop.y / 100) * wrapperRect.height;
+                    const cropClientW = (activePercentCrop.width / 100) * wrapperRect.width;
+                    const cropClientH = (activePercentCrop.height / 100) * wrapperRect.height;
+
+                    const relativeX = cropClientX - imgRect.left;
+                    const relativeY = cropClientY - imgRect.top;
+
+                    cx = Math.round(relativeX * scaleX);
+                    cy = Math.round(relativeY * scaleY);
+                    cw = Math.round(cropClientW * scaleX);
+                    ch = Math.round(cropClientH * scaleY);
+                    
+                    isReverseCrop = cx < 0 || cy < 0 || (cx + cw) > natW || (cy + ch) > natH;
                 }
-                const natW = imgRef.current.naturalWidth ?? imgRef.current.width;
-                const natH = imgRef.current.naturalHeight ?? imgRef.current.height;
 
-                let cx = Math.max(0, Math.round((activePercentCrop.x / 100) * natW));
-                let cy = Math.max(0, Math.round((activePercentCrop.y / 100) * natH));
-                let cw = Math.round((activePercentCrop.width / 100) * natW);
-                let ch = Math.round((activePercentCrop.height / 100) * natH);
-                if (cx + cw > natW) cw = natW - cx;
-                if (cy + ch > natH) ch = natH - cy;
-
-                const cropData = {
-                    x: cx, y: cy, width: cw, height: ch,
-                    targetWidth: parseInt(targetW) || null,
-                    targetHeight: parseInt(targetH) || null,
-                    overwrite,
-                    rotation: ((rotation % 360) + 360) % 360
-                };
-
-                const result = await window.electron.cropImage(image.path, cropData);
-                if (result.success) {
-                    if (overwrite) {
-                        setForceImageUrl(`media://local/${encodeURIComponent(image.path)}?t=${result.timestamp || Date.now()}`);
-                        window.dispatchEvent(new CustomEvent('image-updated', {
-                            detail: { path: image.path, timestamp: result.timestamp || Date.now() }
-                        }));
+                if (!hasDrawing && !isReverseCrop) {
+                    // Normal Crop/rotate only: use existing backend if within bounds
+                    if (cw <= 0 || ch <= 0) {
+                        cancelEdit(e);
+                        return;
                     }
-                    cancelEdit(e);
-                } else {
-                    alert('Crop Failed: ' + result.error);
-                }
-            } else if (hasDrawing && hasCropOrRotation) {
-                // Both drawing + crop/rotation: composite all client-side
-                const fullImg = new Image();
-                fullImg.crossOrigin = 'anonymous';
-                await new Promise((resolve, reject) => {
-                    fullImg.onload = resolve;
-                    fullImg.onerror = reject;
-                    fullImg.src = getActiveUrl();
-                });
+                    if (cx + cw > natW) cw = natW - cx;
+                    if (cy + ch > natH) ch = natH - cy;
+                    cx = Math.max(0, cx);
+                    cy = Math.max(0, cy);
 
-                // Step 1: Draw original + brush strokes
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = fullImg.naturalWidth;
-                tempCanvas.height = fullImg.naturalHeight;
-                const tmpCtx = tempCanvas.getContext('2d');
-                tmpCtx.drawImage(fullImg, 0, 0);
-                const drawCanvas = drawCanvasRef.current;
-                if (drawCanvas && drawCanvas.width > 0) {
-                    tmpCtx.drawImage(drawCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
-                }
+                    const cropData = {
+                        x: cx, y: cy, width: cw, height: ch,
+                        targetWidth: parseInt(targetW) || null,
+                        targetHeight: parseInt(targetH) || null,
+                        overwrite,
+                        rotation: ((rotation % 360) + 360) % 360
+                    };
 
-                // Step 2: Apply rotation
-                const rot = ((rotation % 360) + 360) % 360;
-                const rad = (rot * Math.PI) / 180;
-                let rw = tempCanvas.width, rh = tempCanvas.height;
-                if (rot !== 0) {
-                    const ac = Math.abs(Math.cos(rad)), as = Math.abs(Math.sin(rad));
-                    rw = Math.round(tempCanvas.width * ac + tempCanvas.height * as);
-                    rh = Math.round(tempCanvas.width * as + tempCanvas.height * ac);
-                }
-                const rotCanvas = document.createElement('canvas');
-                rotCanvas.width = rw;
-                rotCanvas.height = rh;
-                const rCtx = rotCanvas.getContext('2d');
-                rCtx.translate(rw / 2, rh / 2);
-                rCtx.rotate(rad);
-                rCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
-
-                // Step 3: Apply crop
-                let activePercentCrop = percentCropRef.current || { x: 0, y: 0, width: 100, height: 100 };
-                let cx = Math.max(0, Math.round((activePercentCrop.x / 100) * rw));
-                let cy = Math.max(0, Math.round((activePercentCrop.y / 100) * rh));
-                let cw = Math.round((activePercentCrop.width / 100) * rw);
-                let ch = Math.round((activePercentCrop.height / 100) * rh);
-                if (cx + cw > rw) cw = rw - cx;
-                if (cy + ch > rh) ch = rh - cy;
-
-                const finalCanvas = document.createElement('canvas');
-                const tw = parseInt(targetW) || cw;
-                const th = parseInt(targetH) || ch;
-                finalCanvas.width = tw;
-                finalCanvas.height = th;
-                const fCtx = finalCanvas.getContext('2d');
-                fCtx.drawImage(rotCanvas, cx, cy, cw, ch, 0, 0, tw, th);
-
-                const dataUrl = finalCanvas.toDataURL('image/png');
-                const result = await window.electron.saveEditedImage(image.path, dataUrl, overwrite);
-                if (result.success) {
-                    if (overwrite) {
-                        setForceImageUrl(`media://local/${encodeURIComponent(image.path)}?t=${result.timestamp || Date.now()}`);
-                        window.dispatchEvent(new CustomEvent('image-updated', {
-                            detail: { path: image.path, timestamp: result.timestamp || Date.now() }
-                        }));
+                    const result = await window.electron.cropImage(image.path, cropData);
+                    if (result.success) {
+                        if (overwrite) {
+                            setForceImageUrl(`media://local/${encodeURIComponent(image.path)}?t=${result.timestamp || Date.now()}`);
+                            window.dispatchEvent(new CustomEvent('image-updated', {
+                                detail: { path: image.path, timestamp: result.timestamp || Date.now() }
+                            }));
+                        }
+                        cancelEdit(e);
+                    } else {
+                        alert('Crop Failed: ' + result.error);
                     }
-                    cancelEdit(e);
                 } else {
-                    alert('Save Failed: ' + result.error);
+                    // Client-side composite: Drawing + Crop/Rotation OR Reverse Crop Mode
+                    const fullImg = new Image();
+                    fullImg.crossOrigin = 'anonymous';
+                    await new Promise((resolve, reject) => {
+                        fullImg.onload = resolve;
+                        fullImg.onerror = reject;
+                        fullImg.src = getActiveUrl();
+                    });
+
+                    // Step 1: Draw original + brush strokes
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = fullImg.naturalWidth;
+                    tempCanvas.height = fullImg.naturalHeight;
+                    const tmpCtx = tempCanvas.getContext('2d');
+                    tmpCtx.drawImage(fullImg, 0, 0);
+                    if (hasDrawing) {
+                        const drawCanvas = drawCanvasRef.current;
+                        if (drawCanvas && drawCanvas.width > 0) {
+                            tmpCtx.drawImage(drawCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+                        }
+                    }
+
+                    // Step 2: Apply rotation
+                    const rot = ((rotation % 360) + 360) % 360;
+                    const rad = (rot * Math.PI) / 180;
+                    let rw = tempCanvas.width, rh = tempCanvas.height;
+                    if (rot !== 0) {
+                        const ac = Math.abs(Math.cos(rad)), as = Math.abs(Math.sin(rad));
+                        rw = Math.round(tempCanvas.width * ac + tempCanvas.height * as);
+                        rh = Math.round(tempCanvas.width * as + tempCanvas.height * ac);
+                    }
+                    const rotCanvas = document.createElement('canvas');
+                    rotCanvas.width = rw;
+                    rotCanvas.height = rh;
+                    const rCtx = rotCanvas.getContext('2d');
+                    rCtx.translate(rw / 2, rh / 2);
+                    rCtx.rotate(rad);
+                    rCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
+
+                    const finalCanvas = document.createElement('canvas');
+                    finalCanvas.width = parseInt(targetW) || cw;
+                    finalCanvas.height = parseInt(targetH) || ch;
+                    const fCtx = finalCanvas.getContext('2d');
+
+                    // If crop expands beyond image (cx < 0, cy < 0 etc), fill with bg color
+                    if (isReverseCrop) {
+                        fCtx.fillStyle = cropBgColor;
+                        fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+                    }
+
+                    // Scale to target sizes if provided
+                    const destScaleX = targetW ? (parseInt(targetW) / cw) : 1;
+                    const destScaleY = targetH ? (parseInt(targetH) / ch) : 1;
+                    
+                    fCtx.scale(destScaleX, destScaleY);
+                    
+                    // Draw rotCanvas shifted negatively by cx, cy so crop box aligns to corner
+                    fCtx.drawImage(rotCanvas, -cx, -cy);
+                    
+                    fCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+                    const dataUrl = finalCanvas.toDataURL('image/png');
+                    const result = await window.electron.saveEditedImage(image.path, dataUrl, overwrite);
+                    if (result.success) {
+                        if (overwrite) {
+                            setForceImageUrl(`media://local/${encodeURIComponent(image.path)}?t=${result.timestamp || Date.now()}`);
+                            window.dispatchEvent(new CustomEvent('image-updated', {
+                                detail: { path: image.path, timestamp: result.timestamp || Date.now() }
+                            }));
+                        }
+                        cancelEdit(e);
+                    } else {
+                        alert('Save Failed: ' + result.error);
+                    }
                 }
-            } else {
-                // No changes, just close
-                cancelEdit(e);
             }
         } catch (err) {
             console.error(err);
@@ -753,7 +809,6 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         <div
             className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
             onClick={onClose}
-            onKeyDown={isEditing ? handleEditKeyDown : undefined}
             tabIndex={-1}
         >
             {/* Top Bar Controls */}
@@ -866,19 +921,78 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         {isEditing && editTool === 'crop' ? (
                             <ReactCrop
                                 crop={crop}
-                                onChange={(c) => setCrop(c)}
+                                onChange={(c, percentCrop) => {
+                                    if (imgRef.current && imgRef.current.parentElement) {
+                                        // Snapping logic to the actual image boundaries
+                                        const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+                                        const imgRect = imgRef.current.getBoundingClientRect();
+                                        
+                                        // Image bounds relative to wrapper
+                                        const imgLeft = ((imgRect.left - wrapperRect.left) / wrapperRect.width) * 100;
+                                        const imgTop = ((imgRect.top - wrapperRect.top) / wrapperRect.height) * 100;
+                                        const imgWidth = (imgRect.width / wrapperRect.width) * 100;
+                                        const imgHeight = (imgRect.height / wrapperRect.height) * 100;
+                                        const imgRight = imgLeft + imgWidth;
+                                        const imgBottom = imgTop + imgHeight;
+
+                                        let newP = { ...percentCrop };
+                                        const snapThresholdPx = 10;
+                                        const snapThresholdX = (snapThresholdPx / wrapperRect.width) * 100; // ~10px in %
+                                        const snapThresholdY = (snapThresholdPx / wrapperRect.height) * 100;
+
+                                        // Snap left
+                                        if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
+                                            newP.width += (newP.x - imgLeft);
+                                            newP.x = imgLeft;
+                                        }
+                                        // Snap right
+                                        if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
+                                            newP.width = imgRight - newP.x;
+                                        }
+                                        // Snap top
+                                        if (Math.abs(newP.y - imgTop) < snapThresholdY) {
+                                            newP.height += (newP.y - imgTop);
+                                            newP.y = imgTop;
+                                        }
+                                        // Snap bottom
+                                        if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
+                                            newP.height = imgBottom - newP.y;
+                                        }
+                                        
+                                        // Also restrict from going too far beyond padding if needed, but react-image-crop does that
+                                        setCrop(newP);
+                                        percentCropRef.current = newP;
+                                    } else {
+                                        setCrop(percentCrop);
+                                        percentCropRef.current = percentCrop;
+                                    }
+                                }}
                                 onComplete={(c, percentCrop) => {
                                     setCompletedCrop(c);
-                                    percentCropRef.current = percentCrop;
+                                    // Make sure percentCrop is updated to the snapped version we might have set
+                                    percentCropRef.current = crop || percentCrop;
                                 }}
                                 aspect={aspect}
-                                style={{ display: 'flex', maxWidth: '100%', maxHeight: '100%' }}
+                                style={{ display: 'flex', maxWidth: '100vw', maxHeight: '100vh' }}
                             >
-                                <canvas
-                                    ref={imgRef}
-                                    style={{ maxHeight: '100vh', maxWidth: '100vw' }}
-                                    className="select-none block"
-                                />
+                                <div style={{ 
+                                    padding: '15vh 15vw', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '100%'
+                                }}>
+                                    <canvas
+                                        ref={imgRef}
+                                        style={{ 
+                                            maxHeight: '70vh', 
+                                            maxWidth: '70vw',
+                                            objectFit: 'contain'
+                                        }}
+                                        className="select-none block shadow-[0_0_20px_rgba(0,0,0,0.5)]"
+                                    />
+                                </div>
                             </ReactCrop>
                         ) : (
                             <div className="relative w-full h-full flex items-center justify-center">
@@ -1013,6 +1127,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     {/* Crop Tool Options */}
                     {editTool === 'crop' && (
                         <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap items-center justify-center gap-2 px-2 border-b border-neutral-800 pb-2 mb-1">
+                                <span className="text-gray-400 text-xs hidden md:inline">反向裁剪填充色:</span>
+                                <div className="flex items-center gap-1 mx-1">
+                                    <input type="color" value={cropBgColor} onChange={e => setCropBgColor(e.target.value)} className="w-[18px] h-[18px] rounded cursor-pointer border-0 p-0 appearance-none bg-transparent" title="选择超出选区后的填充色" />
+                                </div>
+                            </div>
                             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
                                 <button onClick={() => handleAspectChange(undefined)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === undefined ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>Free</button>
                                 <button onClick={() => handleAspectChange(1)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === 1 ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>1:1</button>
@@ -1024,9 +1144,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                 <div className="w-px h-4 bg-neutral-700 mx-1 hidden md:block" />
                                 <div className="flex items-center gap-1">
                                     <span className="text-gray-400 text-xs hidden md:inline ml-1">Export:</span>
-                                    <input type="number" value={targetW} onChange={handleTargetWChange} onKeyDown={handleEditKeyDown} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
+                                    <input type="number" value={targetW} onChange={handleTargetWChange} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
                                     <span className="text-gray-500 text-xs">x</span>
-                                    <input type="number" value={targetH} onChange={handleTargetHChange} onKeyDown={handleEditKeyDown} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" />
+                                    <input type="number" value={targetH} onChange={handleTargetHChange} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" />
                                     <span className="text-gray-500 text-xs ml-1">px</span>
                                 </div>
                             </div>

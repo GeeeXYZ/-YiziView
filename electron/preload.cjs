@@ -72,8 +72,8 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Settings
     clearThumbnailCache: () => ipcRenderer.invoke('clear-thumbnail-cache'),
-    exportTags: () => ipcRenderer.invoke('export-tags'),
-    importTags: () => ipcRenderer.invoke('import-tags'),
+    exportSettings: (frontendSettings) => ipcRenderer.invoke('export-settings', frontendSettings),
+    importSettings: () => ipcRenderer.invoke('import-settings'),
 
     // Utils
     getDirname: (p) => ipcRenderer.invoke('get-dirname', p),

@@ -89,13 +89,65 @@ const Panel = ({
         }
     };
 
+    const [sidebarWidth, setSidebarWidth] = React.useState(() => {
+        const savedWidth = localStorage.getItem(`sidebar_width_${panelId}`);
+        return savedWidth ? parseInt(savedWidth) : 224; // 224px is w-56
+    });
+
+    const isResizingRef = React.useRef(false);
+
+    const handleSidebarMouseDown = (e) => {
+        e.preventDefault();
+        isResizingRef.current = true;
+        document.body.style.cursor = 'col-resize';
+
+        const handleMouseMove = (mouseMoveEvent) => {
+            if (!isResizingRef.current) return;
+            // Calculate new width based on mouse pos. Need to factor in panel's left offset
+            const panelElement = document.getElementById(`panel-container-${panelId}`);
+            if (panelElement) {
+                const panelRect = panelElement.getBoundingClientRect();
+                let newWidth = mouseMoveEvent.clientX - panelRect.left;
+                
+                // Constraints
+                if (newWidth < 150) newWidth = 150;
+                if (newWidth > 600) newWidth = 600;
+                
+                setSidebarWidth(newWidth);
+            }
+        };
+
+        const handleMouseUp = () => {
+            isResizingRef.current = false;
+            document.body.style.cursor = 'default';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            // Save final width
+            // Need latest state value, but closure has stale state. 
+            // It's easier to just save it via an effect or using the ref trick, 
+            // but for simplicity we'll just save it in an effect watching sidebarWidth
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
+
+    React.useEffect(() => {
+        localStorage.setItem(`sidebar_width_${panelId}`, sidebarWidth.toString());
+    }, [sidebarWidth, panelId]);
+
     return (
         <div
+            id={`panel-container-${panelId}`}
             className="flex h-full overflow-hidden"
             onClick={onActivate}
         >
             {/* Sidebar - Independent for each panel */}
-            <div className="w-56 h-full border-r border-neutral-700/50 flex flex-col bg-neutral-900/50 shrink-0" onMouseDown={onActivate}>
+            <div 
+                className="h-full flex flex-col bg-neutral-900/50 shrink-0" 
+                style={{ width: `${sidebarWidth}px` }}
+                onMouseDown={onActivate}
+            >
                 <Sidebar
                     onFolderSelect={handleFolderSelect}
                     currentPath={currentFolder}
@@ -103,9 +155,17 @@ const Panel = ({
                     setConfirmModal={setConfirmModal}
                 />
             </div>
+            
+            {/* Resize Handle */}
+            <div 
+                className="w-1 cursor-col-resize hover:bg-blue-500/50 bg-neutral-700/50 transition-colors shrink-0 z-10"
+                onMouseDown={handleSidebarMouseDown}
+                onDoubleClick={() => setSidebarWidth(224)}
+                title="Double click to reset width"
+            />
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
+            <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
                 {/* Top Bar */}
                 <div
                     className={`h-12 border-b border-neutral-800 flex items-center px-4 titlebar-drag-region shrink-0 transition-colors duration-200 ${isActive ? 'bg-blue-900/20 backdrop-blur' : 'bg-neutral-900/90 backdrop-blur'}`}

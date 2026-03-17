@@ -142,37 +142,51 @@ const SettingsModal = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleExportTags = async () => {
+    const handleExportSettings = async () => {
         setExporting(true);
         try {
-            const result = await window.electron.exportTags();
+            // Gather frontend localStorage settings
+            const frontendSettings = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('settings_') || key.startsWith('yizi_') || key.startsWith('last_')) {
+                    frontendSettings[key] = localStorage.getItem(key);
+                }
+            }
+
+            const result = await window.electron.exportSettings(frontendSettings);
             if (result.success) {
-                alert(`Tags exported successfully to:\n${result.path}`);
+                alert(`Settings exported successfully to:\n${result.path}`);
             } else {
                 alert('Export cancelled or failed.');
             }
         } catch (error) {
-            console.error('Failed to export tags:', error);
-            alert('Failed to export tags.');
+            console.error('Failed to export settings:', error);
+            alert('Failed to export settings.');
         } finally {
             setExporting(false);
         }
     };
 
-    const handleImportTags = async () => {
+    const handleImportSettings = async () => {
         setImporting(true);
         try {
-            const result = await window.electron.importTags();
+            const result = await window.electron.importSettings();
             if (result.success) {
-                alert(`Tags imported successfully!\n${result.count} tag(s) imported.`);
-                // Optionally reload the app or refresh tags
+                if (result.frontendSettings) {
+                    for (const [key, value] of Object.entries(result.frontendSettings)) {
+                        localStorage.setItem(key, value);
+                    }
+                }
+                alert(`Settings imported successfully!`);
+                // Reload the app to fully apply all imported states (folders, colors, settings)
                 window.location.reload();
             } else {
                 alert('Import cancelled or failed.');
             }
         } catch (error) {
-            console.error('Failed to import tags:', error);
-            alert('Failed to import tags.');
+            console.error('Failed to import settings:', error);
+            alert('Failed to import settings.');
         } finally {
             setImporting(false);
         }
@@ -326,33 +340,33 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         </div>
                     </div>
 
-                    {/* Tag Management */}
+                    {/* Backup & Restore */}
                     <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Tagging System</h3>
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Backup & Restore</h3>
                         <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
                             <div className="flex items-center justify-between gap-4">
                                 <div className="flex-1">
-                                    <h4 className="text-white font-medium mb-1">Backup & Restore Tags</h4>
+                                    <h4 className="text-white font-medium mb-1">Backup & Restore Settings</h4>
                                     <p className="text-sm text-gray-400">
-                                        Export your library's tags to a JSON file or restore them to merge with your current tags.
+                                        Export all your user settings, tags, folder colors, and favorite folders to a JSON file or restore them.
                                     </p>
                                 </div>
                                 <div className="flex flex-col gap-2 shrink-0 min-w-[130px]">
                                     <button
-                                        onClick={handleExportTags}
+                                        onClick={handleExportSettings}
                                         disabled={exporting}
                                         className="h-9 px-4 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-50 text-blue-400 border border-blue-500/20 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-medium"
                                     >
                                         <Download size={14} />
-                                        {exporting ? 'Exporting...' : 'Export Tags'}
+                                        {exporting ? 'Exporting...' : 'Export Settings'}
                                     </button>
                                     <button
-                                        onClick={handleImportTags}
+                                        onClick={handleImportSettings}
                                         disabled={importing}
                                         className="h-9 px-4 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-400 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-medium"
                                     >
                                         <Upload size={14} />
-                                        {importing ? 'Importing...' : 'Import Tags'}
+                                        {importing ? 'Importing...' : 'Import Settings'}
                                     </button>
                                 </div>
                             </div>
