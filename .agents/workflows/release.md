@@ -8,4 +8,5 @@ Please ask the user whether they want to do a `patch` (e.g. 0.8.4 -> 0.8.5), `mi
 // turbo-all
 1. Use `npm version <type>` to automatically bump the version in `package.json`, create a git commit, and generate a Git tag for the new version. You should replace `<type>` with `patch`, `minor`, `major`, or the exact version number like `0.8.5`. Make sure any prerequisite commands (like `git add .` and `git commit -m "..."`) before versioning use `;` instead of `&&` since the command line runs in PowerShell.
 2. Push the new commit and the new tag to the remote repository using `git push --follow-tags`.
-3. Inform the user that the new release label has been successfully created and pushed.
+3. Extract the update log for this new version by reviewing the git commits since the last tag. Generate a concise update log where each new feature or fix is described in a single, simple sentence.
+4. Inform the user that the new release has been successfully pushed and present the generated update log to them.

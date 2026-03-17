@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Eye, EyeOff, SlidersHorizontal, ArrowUpFromLine, GripHorizontal } from 'lucide-react';
+import { Heart, Crop, Check, X as XIcon, Paintbrush, RotateCcw, RotateCw, Eraser, Minus, Plus, Eye, EyeOff, SlidersHorizontal, ArrowUpFromLine, GripHorizontal, Activity } from 'lucide-react';
+import ToneCurve from './ToneCurve';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { SelectiveWebGLFilter } from '../utils/SelectiveWebGLFilter';
@@ -99,6 +100,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [justSavedPreset, setJustSavedPreset] = useState(null);
     const [renamingPreset, setRenamingPreset] = useState(null);
     const [renameValue, setRenameValue] = useState("");
+    
+    const [adjustCurve, setAdjustCurve] = useState([{x:0, y:0}, {x:255, y:255}]);
+    const [showCurvePicker, setShowCurvePicker] = useState(false);
     
     const [previewObjectURL, setPreviewObjectURL] = useState(null);
     const webGLFilterRef = useRef(null);
@@ -430,8 +434,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
         const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
         const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+        const hasCurve = adjustCurve.length !== 2 || adjustCurve[0].y !== 0 || adjustCurve[1].y !== 255 || adjustCurve[0].x !== 0 || adjustCurve[1].x !== 255;
         
-        if (!hasSelective && !hasGrading && !hasAdjustments) {
+        if (!hasSelective && !hasGrading && !hasAdjustments && !hasCurve) {
             setPreviewObjectURL(null);
             return;
         }
@@ -457,7 +462,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 gradingShadows,
                 gradingMidtones,
                 gradingHighlights,
-                gradingIntensity
+                gradingIntensity,
+                adjustCurve
             };
             const canvas = webGLFilterRef.current.render(img, options);
             if (!canvas) return;
@@ -471,7 +477,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             }, 'image/jpeg', 0.90);
         };
         img.src = getActiveUrl();
-    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, image]);
+    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, adjustCurve, image]);
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -1511,9 +1517,31 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                 </div>
 
                                 {/* Basic Reset */}
-                                <div className="flex justify-end mt-1">
+                                <div className="flex justify-between items-center relative mt-1 gap-2">
                                     <button
-                                        onClick={() => { setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); }}
+                                        onClick={() => setShowCurvePicker(!showCurvePicker)}
+                                        className={`text-xs flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-md border flex-shrink-0 ${showCurvePicker ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)]' : 'bg-neutral-800 border-neutral-700 text-gray-300 hover:text-blue-400 hover:border-blue-500/50'}`}
+                                    >
+                                        <Activity size={14} className={showCurvePicker ? "text-blue-200" : "text-blue-500"} /> 
+                                        {showCurvePicker ? "Close Curve" : "Tone Curve"}
+                                    </button>
+                                    
+                                    {showCurvePicker && (
+                                        <div className="fixed bottom-[140px] left-[50%] -translate-x-1/2 md:-translate-x-0 md:left-6 w-[300px] bg-neutral-900/95 backdrop-blur-md border border-neutral-700 shadow-[0_0_40px_rgba(0,0,0,0.8)] rounded-xl p-4 z-[200]">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h3 className="text-white text-sm font-medium flex items-center gap-2"><Activity size={14} className="text-blue-400" /> Tone Curve</h3>
+                                                <button onClick={() => setShowCurvePicker(false)} className="text-gray-400 hover:text-white transition-colors hover:bg-neutral-800 p-1 rounded-md"><XIcon size={14}/></button>
+                                            </div>
+                                            <ToneCurve 
+                                                value={adjustCurve} 
+                                                onChange={setAdjustCurve} 
+                                                onReset={() => setAdjustCurve([{x:0, y:0}, {x:255, y:255}])} 
+                                            />
+                                        </div>
+                                    )}
+
+                                    <button
+                                        onClick={() => { setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); setAdjustCurve([{x:0, y:0}, {x:255, y:255}]); }}
                                         className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
                                     >
                                         <RotateCcw size={10} /> Reset Basic
@@ -1635,6 +1663,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                                             setGradingShadows(preset.shadows);
                                                             setGradingMidtones(preset.midtones);
                                                             setGradingHighlights(preset.highlights);
+                                                            if (preset.curve) {
+                                                                setAdjustCurve(preset.curve);
+                                                            }
                                                         }
                                                     }}
                                                     onDoubleClick={() => {
@@ -1650,6 +1681,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                                             shadows: gradingShadows,
                                                             midtones: gradingMidtones,
                                                             highlights: gradingHighlights,
+                                                            curve: adjustCurve,
                                                             name: isSaved ? gradingPresets[index].name : ""
                                                         };
                                                         setGradingPresets(newPresets);
@@ -1678,6 +1710,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                     <button
                                         onClick={() => { 
                                             setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); 
+                                            setAdjustCurve([{x:0, y:0}, {x:255, y:255}]);
                                             setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
                                             setGradingShadows({x: 0, y: 0});
                                             setGradingMidtones({x: 0, y: 0});

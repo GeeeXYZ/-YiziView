@@ -1,3 +1,5 @@
+import { createCurveLUT } from './curveSpline';
+
 function shiftVec(optsObj, intensityLimit = 0.16) {
     if (!optsObj) return [0, 0, 0];
     const {x, y} = optsObj;
@@ -75,8 +77,10 @@ export class SelectiveWebGLFilter {
             u_shadows: this.gl.getUniformLocation(this.program, "u_shadows"),
             u_midtones: this.gl.getUniformLocation(this.program, "u_midtones"),
             u_highlights: this.gl.getUniformLocation(this.program, "u_highlights"),
+            u_curve: this.gl.getUniformLocation(this.program, "u_curve"),
         };
         
+        this.curveTexture = this.gl.createTexture();
         this.gl.useProgram(this.program);
     }
 
@@ -130,6 +134,7 @@ export class SelectiveWebGLFilter {
             uniform vec3 u_shadows;
             uniform vec3 u_midtones;
             uniform vec3 u_highlights;
+            uniform sampler2D u_curve;
             varying vec2 v_texCoord;
 
             vec3 rgb2hsl(vec3 c) {
@@ -182,6 +187,10 @@ export class SelectiveWebGLFilter {
                 color.rgb *= u_brightness;
                 color.rgb = (color.rgb - 0.5) * u_contrast + 0.5;
                 color.rgb = clamp(color.rgb, 0.0, 1.0);
+
+                color.r = texture2D(u_curve, vec2(color.r, 0.5)).r;
+                color.g = texture2D(u_curve, vec2(color.g, 0.5)).r;
+                color.b = texture2D(u_curve, vec2(color.b, 0.5)).r;
                 
                 vec3 hsl = rgb2hsl(color.rgb);
                 
@@ -242,7 +251,21 @@ export class SelectiveWebGLFilter {
         this.canvas.width = w;
         this.canvas.height = h;
         this.gl.viewport(0, 0, w, h);
+        
+        // 1. Setup Curve Lookup Texture Pipeline
+        const curvePoints = options.adjustCurve || [{x: 0, y: 0}, {x: 255, y: 255}];
+        const lut = createCurveLUT(curvePoints);
+        
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.curveTexture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.LUMINANCE, 256, 1, 0, this.gl.LUMINANCE, this.gl.UNSIGNED_BYTE, lut);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
 
+        // 2. Setup Main Image Pipeline
+        this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, imageElement);
 
@@ -278,6 +301,9 @@ export class SelectiveWebGLFilter {
         this.gl.uniform3fv(this.locations.u_shadows, shiftVec(options.gradingShadows, intensityLimit));
         this.gl.uniform3fv(this.locations.u_midtones, shiftVec(options.gradingMidtones, intensityLimit));
         this.gl.uniform3fv(this.locations.u_highlights, shiftVec(options.gradingHighlights, intensityLimit));
+
+        this.gl.uniform1i(this.locations.u_image, 0);
+        this.gl.uniform1i(this.locations.u_curve, 1);
 
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 
