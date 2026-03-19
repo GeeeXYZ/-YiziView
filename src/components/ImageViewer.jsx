@@ -474,7 +474,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     if (prev) URL.revokeObjectURL(prev);
                     return url;
                 });
-            }, 'image/jpeg', 0.90);
+            }, 'image/webp', 0.90);
         };
         img.src = getActiveUrl();
     }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, adjustCurve, image]);
@@ -838,15 +838,16 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
             const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
             const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
+            const hasCurve = adjustCurve.length !== 2 || adjustCurve[0].y !== 0 || adjustCurve[1].y !== 255 || adjustCurve[0].x !== 0 || adjustCurve[1].x !== 255;
 
-            if (!hasDrawing && !hasCropOrRotation && !hasAdjustments && !hasSelective && !hasGrading) {
+            if (!hasDrawing && !hasCropOrRotation && !hasAdjustments && !hasSelective && !hasGrading && !hasCurve) {
                 cancelEdit(e);
                 setIsSaving(false);
                 return;
             }
 
             const renderBaseAndAdjustments = (canvasCtx, srcImg) => {
-                if (hasSelective || hasAdjustments || hasGrading) {
+                if (hasSelective || hasAdjustments || hasGrading || hasCurve) {
                     if (!webGLFilterRef.current) webGLFilterRef.current = new SelectiveWebGLFilter(8192, 8192);
                     
                     const options = {
@@ -857,7 +858,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         selectiveSat,
                         gradingShadows,
                         gradingMidtones,
-                        gradingHighlights
+                        gradingHighlights,
+                        gradingIntensity,
+                        adjustCurve
                     };
                     const outCanvas = webGLFilterRef.current.render(srcImg, options);
                     
@@ -871,7 +874,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 }
             };
 
-            if ((hasDrawing || hasAdjustments || hasSelective || hasGrading) && !hasCropOrRotation) {
+            if ((hasDrawing || hasAdjustments || hasSelective || hasGrading || hasCurve) && !hasCropOrRotation) {
                 // Drawing or adjustments only: composite onto full-res image client-side
                 const fullImg = new Image();
                 fullImg.crossOrigin = 'anonymous';
@@ -942,21 +945,45 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     isReverseCrop = cx < 0 || cy < 0 || (cx + cw) > natW || (cy + ch) > natH;
                 }
 
-                if (!hasDrawing && !isReverseCrop && !hasAdjustments && !hasSelective && !hasGrading) {
+                if (!hasDrawing && !isReverseCrop && !hasAdjustments && !hasSelective && !hasGrading && !hasCurve) {
                     // Normal Crop/rotate only: use existing backend if within bounds
                     if (cw <= 0 || ch <= 0) {
                         cancelEdit(e);
                         return;
                     }
-                    if (cx + cw > natW) cw = natW - cx;
-                    if (cy + ch > natH) ch = natH - cy;
-                    cx = Math.max(0, cx);
-                    cy = Math.max(0, cy);
+                    // Shift bounds first before crushing sizes to preserve aspect ratio
+                    if (cx < 0) cx = 0;
+                    if (cy < 0) cy = 0;
+
+                    if (cx + cw > natW) {
+                        cx = Math.max(0, natW - cw);
+                        if (cx + cw > natW) cw = natW - cx;
+                    }
+                    if (cy + ch > natH) {
+                        cy = Math.max(0, natH - ch);
+                        if (cy + ch > natH) ch = natH - cy;
+                    }
+
+                    let finalTargetW = parseInt(targetW) || null;
+                    let finalTargetH = parseInt(targetH) || null;
+                    
+                    if (aspect) {
+                        // Mathematically enforce the exact aspect ratio on the exported pixel payload
+                        ch = Math.round(cw / aspect);
+                        if (cy + ch > natH) {
+                            ch = natH - cy;
+                            cw = Math.round(ch * aspect);
+                        }
+                        
+                        // Prevent backend from stretching due to rounding mismatch by only passing the active constraint
+                        if (finalTargetW) finalTargetH = null;
+                        else if (finalTargetH) finalTargetW = null;
+                    }
 
                     const cropData = {
                         x: cx, y: cy, width: cw, height: ch,
-                        targetWidth: parseInt(targetW) || null,
-                        targetHeight: parseInt(targetH) || null,
+                        targetWidth: finalTargetW,
+                        targetHeight: finalTargetH,
                         overwrite,
                         rotation: ((rotation % 360) + 360) % 360
                     };
@@ -1015,9 +1042,17 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     rCtx.rotate(rad);
                     rCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
 
+                    let destScaleX = targetW ? (parseInt(targetW) / cw) : 1;
+                    let destScaleY = targetH ? (parseInt(targetH) / ch) : 1;
+                    
+                    if (aspect) {
+                       if (targetW) destScaleY = destScaleX;
+                       else if (targetH) destScaleX = destScaleY;
+                    }
+
                     const finalCanvas = document.createElement('canvas');
-                    finalCanvas.width = parseInt(targetW) || cw;
-                    finalCanvas.height = parseInt(targetH) || ch;
+                    finalCanvas.width = targetW ? Math.round(cw * destScaleX) : cw;
+                    finalCanvas.height = targetH ? Math.round(ch * destScaleY) : ch;
                     const fCtx = finalCanvas.getContext('2d');
 
                     // If crop expands beyond image (cx < 0, cy < 0 etc), fill with bg color
@@ -1026,10 +1061,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
                     }
 
-                    // Scale to target sizes if provided
-                    const destScaleX = targetW ? (parseInt(targetW) / cw) : 1;
-                    const destScaleY = targetH ? (parseInt(targetH) / ch) : 1;
-                    
+                    // Scale to target sizes uniformly if proportion-locked
                     fCtx.scale(destScaleX, destScaleY);
                     
                     // Draw rotCanvas shifted negatively by cx, cy so crop box aligns to corner
@@ -1199,23 +1231,44 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                                         const snapThresholdX = (snapThresholdPx / wrapperRect.width) * 100; // ~10px in %
                                         const snapThresholdY = (snapThresholdPx / wrapperRect.height) * 100;
 
-                                        // Snap left
-                                        if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
-                                            newP.width += (newP.x - imgLeft);
-                                            newP.x = imgLeft;
-                                        }
-                                        // Snap right
-                                        if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
-                                            newP.width = imgRight - newP.x;
-                                        }
-                                        // Snap top
-                                        if (Math.abs(newP.y - imgTop) < snapThresholdY) {
-                                            newP.height += (newP.y - imgTop);
-                                            newP.y = imgTop;
-                                        }
-                                        // Snap bottom
-                                        if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
-                                            newP.height = imgBottom - newP.y;
+                                        const prevP = percentCropRef.current;
+                                        const isTranslating = prevP && 
+                                            Math.abs(prevP.width - newP.width) < 0.001 && 
+                                            Math.abs(prevP.height - newP.height) < 0.001;
+
+                                        if (isTranslating) {
+                                            // Handle snapping when the entire crop box is being moved (translated)
+                                            if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
+                                                newP.x = imgLeft;
+                                            } else if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
+                                                newP.x = imgRight - newP.width;
+                                            }
+                                            
+                                            if (Math.abs(newP.y - imgTop) < snapThresholdY) {
+                                                newP.y = imgTop;
+                                            } else if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
+                                                newP.y = imgBottom - newP.height;
+                                            }
+                                        } else if (!aspect) {
+                                            // Free resizing: We independently snap the edges being dragged.
+                                            // Snap left
+                                            if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
+                                                newP.width += (newP.x - imgLeft);
+                                                newP.x = imgLeft;
+                                            }
+                                            // Snap right
+                                            if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
+                                                newP.width = imgRight - newP.x;
+                                            }
+                                            // Snap top
+                                            if (Math.abs(newP.y - imgTop) < snapThresholdY) {
+                                                newP.height += (newP.y - imgTop);
+                                                newP.y = imgTop;
+                                            }
+                                            // Snap bottom
+                                            if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
+                                                newP.height = imgBottom - newP.y;
+                                            }
                                         }
                                         
                                         // Also restrict from going too far beyond padding if needed, but react-image-crop does that

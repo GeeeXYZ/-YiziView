@@ -728,8 +728,16 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
 
       if (left < 0) left = 0;
       if (top < 0) top = 0;
-      if (left + width > rotated.info.width) width = rotated.info.width - left;
-      if (top + height > rotated.info.height) height = rotated.info.height - top;
+      
+      if (left + width > rotated.info.width) {
+        left = Math.max(0, rotated.info.width - width);
+        if (left + width > rotated.info.width) width = rotated.info.width - left;
+      }
+      
+      if (top + height > rotated.info.height) {
+        top = Math.max(0, rotated.info.height - height);
+        if (top + height > rotated.info.height) height = rotated.info.height - top;
+      }
 
       // Extract based on the safe parameters, from the rotated buffer.
       pipeline = sharp(rotated.data).extract({ left, top, width, height });

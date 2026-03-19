@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useLayoutEffect, useState } from 'react';
 
 const ContextMenu = ({ x, y, options, onClose }) => {
     const menuRef = useRef(null);
@@ -13,18 +13,41 @@ const ContextMenu = ({ x, y, options, onClose }) => {
         return () => document.removeEventListener('mousedown', handleClickOutside, true);
     }, [onClose]);
 
-    // Simple bounds check to prevent overflow (bottom/right)
-    // For now, simple positioning
+    const [pos, setPos] = useState({ top: y, left: x });
+
+    useLayoutEffect(() => {
+        if (menuRef.current) {
+            const rect = menuRef.current.getBoundingClientRect();
+            const windowW = window.innerWidth;
+            const windowH = window.innerHeight;
+
+            let finalX = x;
+            let finalY = y;
+
+            // Check right overflow: switch to the exact left of the cursor
+            if (x + rect.width > windowW) {
+                finalX = x - rect.width;
+            }
+
+            // Check bottom overflow: switch to the exact top of the cursor
+            if (y + rect.height > windowH) {
+                finalY = y - rect.height;
+            }
+
+            setPos({ top: finalY, left: finalX });
+        }
+    }, [x, y, options]);
+
     const style = {
-        top: y,
-        left: x,
+        top: pos.top,
+        left: pos.left,
         minWidth: '150px'
     };
 
     return (
         <div
             ref={menuRef}
-            className="fixed z-[1000] bg-neutral-800 border border-neutral-700 shadow-xl rounded-lg py-1 text-sm text-gray-200 select-none animate-in fade-in zoom-in-95 duration-100"
+            className="fixed z-[1000] bg-neutral-800 border border-neutral-700 shadow-xl rounded-lg py-1 text-sm text-gray-200 select-none"
             style={style}
         >
             {options.map((option, index) => {

@@ -182,17 +182,25 @@ export class SelectiveWebGLFilter {
             }
 
             void main() {
-                vec4 color = texture2D(u_image, v_texCoord);
-                
-                color.rgb *= u_brightness;
-                color.rgb = (color.rgb - 0.5) * u_contrast + 0.5;
-                color.rgb = clamp(color.rgb, 0.0, 1.0);
+                vec4 texColor = texture2D(u_image, v_texCoord);
+                vec3 color = texColor.rgb;
+                float alpha = texColor.a;
+
+                // If pixel is fully transparent, skip color calculations to prevent artifacts
+                if (alpha == 0.0) {
+                    gl_FragColor = vec4(0.0);
+                    return;
+                }
+
+                color *= u_brightness;
+                color = (color - 0.5) * u_contrast + 0.5;
+                color = clamp(color, 0.0, 1.0);
 
                 color.r = texture2D(u_curve, vec2(color.r, 0.5)).r;
                 color.g = texture2D(u_curve, vec2(color.g, 0.5)).r;
                 color.b = texture2D(u_curve, vec2(color.b, 0.5)).r;
                 
-                vec3 hsl = rgb2hsl(color.rgb);
+                vec3 hsl = rgb2hsl(color);
                 
                 if (hsl.y > 0.0) {
                     float hueRegion = fract(hsl.x) * 6.0; 
@@ -208,29 +216,29 @@ export class SelectiveWebGLFilter {
                         hsl.y = clamp(hsl.y, 0.0, 1.0);
                     }
                 }
-                color.rgb = hsl2rgb(hsl);
+                color = hsl2rgb(hsl);
                 
                 if (u_saturation != 1.0) {
-                    float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-                    color.rgb = mix(vec3(gray), color.rgb, u_saturation);
-                    color.rgb = clamp(color.rgb, 0.0, 1.0);
+                    float gray = dot(color, vec3(0.2126, 0.7152, 0.0722));
+                    color = mix(vec3(gray), color, u_saturation);
+                    color = clamp(color, 0.0, 1.0);
                 }
                 
                 if (u_hue != 0.0) {
-                    hsl = rgb2hsl(color.rgb);
+                    hsl = rgb2hsl(color);
                     hsl.x = fract(hsl.x + u_hue / 360.0);
-                    color.rgb = hsl2rgb(hsl);
+                    color = hsl2rgb(hsl);
                 }
                 
-                float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+                float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
                 float shadowW = smoothstep(0.4, 0.0, luma);
                 float highlightW = smoothstep(0.6, 1.0, luma);
                 float midtoneW = clamp(1.0 - shadowW - highlightW, 0.0, 1.0);
                 
-                color.rgb += (u_shadows * shadowW) + (u_midtones * midtoneW) + (u_highlights * highlightW);
-                color.rgb = clamp(color.rgb, 0.0, 1.0);
+                color += (u_shadows * shadowW) + (u_midtones * midtoneW) + (u_highlights * highlightW);
+                color = clamp(color, 0.0, 1.0);
                 
-                gl_FragColor = vec4(color.rgb, color.a);
+                gl_FragColor = vec4(color * alpha, alpha);
             }
         `;
     }
