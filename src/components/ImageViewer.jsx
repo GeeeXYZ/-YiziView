@@ -951,33 +951,20 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         cancelEdit(e);
                         return;
                     }
-                    // Shift bounds first before crushing sizes to preserve aspect ratio
-                    if (cx < 0) cx = 0;
-                    if (cy < 0) cy = 0;
-
-                    if (cx + cw > natW) {
-                        cx = Math.max(0, natW - cw);
-                        if (cx + cw > natW) cw = natW - cx;
-                    }
-                    if (cy + ch > natH) {
-                        cy = Math.max(0, natH - ch);
-                        if (cy + ch > natH) ch = natH - cy;
-                    }
+                    // Simple safety clamp (backend also clamps robustly)
+                    if (cx < 0) { cw += cx; cx = 0; }
+                    if (cy < 0) { ch += cy; cy = 0; }
+                    if (cx + cw > natW) cw = natW - cx;
+                    if (cy + ch > natH) ch = natH - cy;
 
                     let finalTargetW = parseInt(targetW) || null;
                     let finalTargetH = parseInt(targetH) || null;
-                    
-                    if (aspect) {
-                        // Mathematically enforce the exact aspect ratio on the exported pixel payload
-                        ch = Math.round(cw / aspect);
-                        if (cy + ch > natH) {
-                            ch = natH - cy;
-                            cw = Math.round(ch * aspect);
-                        }
-                        
-                        // Prevent backend from stretching due to rounding mismatch by only passing the active constraint
-                        if (finalTargetW) finalTargetH = null;
-                        else if (finalTargetH) finalTargetW = null;
+
+                    // When both target dimensions are set, only send one to
+                    // Sharp so it uses uniform (aspect-preserving) scaling
+                    // instead of independent-axis fill that causes stretching.
+                    if (finalTargetW && finalTargetH) {
+                        finalTargetH = null;
                     }
 
                     const cropData = {
@@ -1042,17 +1029,18 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                     rCtx.rotate(rad);
                     rCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
 
-                    let destScaleX = targetW ? (parseInt(targetW) / cw) : 1;
-                    let destScaleY = targetH ? (parseInt(targetH) / ch) : 1;
-                    
-                    if (aspect) {
-                       if (targetW) destScaleY = destScaleX;
-                       else if (targetH) destScaleX = destScaleY;
+                    // Use uniform scaling: pick a single scale factor based on the
+                    // requested target dimension to avoid stretching.
+                    let uniformScale = 1;
+                    if (targetW && parseInt(targetW) && cw > 0) {
+                        uniformScale = parseInt(targetW) / cw;
+                    } else if (targetH && parseInt(targetH) && ch > 0) {
+                        uniformScale = parseInt(targetH) / ch;
                     }
 
                     const finalCanvas = document.createElement('canvas');
-                    finalCanvas.width = targetW ? Math.round(cw * destScaleX) : cw;
-                    finalCanvas.height = targetH ? Math.round(ch * destScaleY) : ch;
+                    finalCanvas.width = Math.round(cw * uniformScale);
+                    finalCanvas.height = Math.round(ch * uniformScale);
                     const fCtx = finalCanvas.getContext('2d');
 
                     // If crop expands beyond image (cx < 0, cy < 0 etc), fill with bg color
@@ -1061,8 +1049,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                         fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
                     }
 
-                    // Scale to target sizes uniformly if proportion-locked
-                    fCtx.scale(destScaleX, destScaleY);
+                    // Scale uniformly to target size
+                    fCtx.scale(uniformScale, uniformScale);
                     
                     // Draw rotCanvas shifted negatively by cx, cy so crop box aligns to corner
                     fCtx.drawImage(rotCanvas, -cx, -cy);

@@ -742,20 +742,29 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
       // Extract based on the safe parameters, from the rotated buffer.
       pipeline = sharp(rotated.data).extract({ left, top, width, height });
     } else {
+      const meta = await pipeline.metadata();
       let left = Math.round(cropData.x);
       let top = Math.round(cropData.y);
       let width = Math.round(cropData.width);
       let height = Math.round(cropData.height);
 
-      // Just clamp slightly if it's off by 1-2 pixels due to Math.round
-      pipeline = pipeline.extract({ left, top, width, height });
+      // Clamp to image bounds to prevent Sharp extraction errors
+      if (left < 0) left = 0;
+      if (top < 0) top = 0;
+      if (left + width > meta.width) width = meta.width - left;
+      if (top + height > meta.height) height = meta.height - top;
+      if (width <= 0 || height <= 0) {
+        return { success: false, error: 'Crop area is empty after clamping.' };
+      }
+
+      pipeline = sharp(imagePath).extract({ left, top, width, height });
     }
 
     if (cropData.targetWidth || cropData.targetHeight) {
       pipeline = pipeline.resize({
         width: cropData.targetWidth || null,
         height: cropData.targetHeight || null,
-        fit: 'fill'
+        fit: 'inside'
       });
     }
 
