@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FileSystem } from '@/managers/FileSystem';
 
 /**
@@ -14,6 +14,9 @@ export const usePanelState = (panelId) => {
     const [viewingIndex, setViewingIndex] = useState(null);
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
+
+    const stateRef = useRef({ images, viewingIndex, selectedIndices });
+    stateRef.current = { images, viewingIndex, selectedIndices };
 
     // Help application sort
     const applySort = useCallback((imgs, config = sortConfig) => {
@@ -47,9 +50,43 @@ export const usePanelState = (panelId) => {
                 if (debounceTimer) clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(async () => {
                     const updatedImages = await FileSystem.scanFolder(currentFolder, panelId);
-                    setImages(applySort(updatedImages));
-                    setSelectedIndices(new Set());
-                    setLastSelectedIndex(null);
+                    const sortedImages = applySort(updatedImages);
+                    
+                    const state = stateRef.current;
+                    let newViewingIndex = state.viewingIndex;
+                    let newSelectedIndices = new Set();
+                    let newLastSelectedIndex = null;
+
+                    if (state.viewingIndex !== null && state.images[state.viewingIndex]) {
+                        const currentPath = state.images[state.viewingIndex].path;
+                        newViewingIndex = sortedImages.findIndex(img => img.path === currentPath);
+                        if (newViewingIndex === -1) {
+                            // If original image deleted or renamed, try to fallback or clear
+                            newViewingIndex = null;
+                        } else {
+                            newSelectedIndices = new Set([newViewingIndex]);
+                            newLastSelectedIndex = newViewingIndex;
+                        }
+                    }
+
+                    if (newViewingIndex === null) {
+                        state.selectedIndices.forEach(idx => {
+                            if (state.images[idx]) {
+                                const path = state.images[idx].path;
+                                const nIdx = sortedImages.findIndex(img => img.path === path);
+                                if (nIdx !== -1) {
+                                    newSelectedIndices.add(nIdx);
+                                    newLastSelectedIndex = nIdx;
+                                }
+                            }
+                        });
+                    }
+
+                    setImages(sortedImages);
+                    setViewingIndex(newViewingIndex);
+                    setSelectedIndices(newSelectedIndices);
+                    setLastSelectedIndex(newLastSelectedIndex);
+                    
                     debounceTimer = null;
                 }, 200);
             }
@@ -129,13 +166,19 @@ export const usePanelState = (panelId) => {
     // Navigation for viewer
     const handleNext = () => {
         if (viewingIndex !== null && viewingIndex < images.length - 1) {
-            setViewingIndex(viewingIndex + 1);
+            const nextIdx = viewingIndex + 1;
+            setViewingIndex(nextIdx);
+            setSelectedIndices(new Set([nextIdx]));
+            setLastSelectedIndex(nextIdx);
         }
     };
 
     const handlePrev = () => {
         if (viewingIndex !== null && viewingIndex > 0) {
-            setViewingIndex(viewingIndex - 1);
+            const prevIdx = viewingIndex - 1;
+            setViewingIndex(prevIdx);
+            setSelectedIndices(new Set([prevIdx]));
+            setLastSelectedIndex(prevIdx);
         }
     };
 
@@ -175,6 +218,8 @@ export const usePanelState = (panelId) => {
 
     const handleImageDoubleClick = (index) => {
         setViewingIndex(index);
+        setSelectedIndices(new Set([index]));
+        setLastSelectedIndex(index);
     };
 
     return {

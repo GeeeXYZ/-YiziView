@@ -1,10 +1,29 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Copy, Check, Crosshair } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ImageGrid from './ImageGrid';
 import ImageViewer from './ImageViewer';
 import BottomPanel from './BottomPanel';
 import SortControl from './SortControl';
 import { FileSystem } from '@/managers/FileSystem';
+
+const CopyButton = ({ path }) => {
+    const [copied, setCopied] = useState(false);
+    return (
+        <button
+            onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(path);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }}
+            className="text-gray-500 hover:text-white p-1 rounded transition-colors"
+            title="Copy Path"
+        >
+            {copied ? <Check size={14} className="text-blue-400" /> : <Copy size={14} />}
+        </button>
+    );
+};
 
 /**
  * Panel component - represents a single view panel in split view
@@ -19,6 +38,8 @@ const Panel = ({
     setConfirmModal,
     hasCloseButton,
 }) => {
+    const [locateTrigger, setLocateTrigger] = React.useState(0);
+
     const {
         currentFolder,
         images,
@@ -153,6 +174,7 @@ const Panel = ({
                     currentPath={currentFolder}
                     onTagSelect={handleTagSelect}
                     setConfirmModal={setConfirmModal}
+                    locateTrigger={locateTrigger}
                 />
             </div>
             
@@ -171,8 +193,23 @@ const Panel = ({
                     className={`h-12 border-b border-neutral-800 flex items-center px-4 titlebar-drag-region shrink-0 transition-colors duration-200 ${isActive ? 'bg-blue-900/20 backdrop-blur' : 'bg-neutral-900/90 backdrop-blur'}`}
                     onMouseDown={onActivate}
                 >
-                    <div className={`flex-1 font-medium text-sm truncate text-center no-drag ${isActive ? 'text-blue-400' : 'text-gray-400'}`}>
-                        {currentFolder ? (currentFolder.length > 60 ? '...' + currentFolder.slice(-60) : currentFolder) : `Panel ${panelId}`}
+                    <div className={`flex-1 font-medium text-sm truncate text-center no-drag flex items-center justify-center gap-2 ${isActive ? 'text-blue-400' : 'text-gray-400'}`}>
+                        {currentFolder && currentFolder !== 'Favorites' && !currentFolder.startsWith('Tag: ') && !currentFolder.startsWith('Tags ') && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLocateTrigger(prev => prev + 1);
+                                }}
+                                className="text-gray-500 hover:text-white p-1 rounded transition-colors"
+                                title="Locate in Tree"
+                            >
+                                <Crosshair size={14} />
+                            </button>
+                        )}
+                        <span>{currentFolder ? (currentFolder.length > 60 ? '...' + currentFolder.slice(-60) : currentFolder) : `Panel ${panelId}`}</span>
+                        {currentFolder && currentFolder !== 'Favorites' && !currentFolder.startsWith('Tag: ') && !currentFolder.startsWith('Tags ') && (
+                            <CopyButton path={currentFolder} />
+                        )}
                     </div>
 
                     {/* Sort Controls - positioned on the right with margin to avoid close button */}

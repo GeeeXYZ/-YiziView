@@ -44,6 +44,22 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         return () => window.removeEventListener('fav-images-updated', updateFavs);
     }, []);
 
+    // Color Tags Tracking
+    const [imageColors, setImageColors] = useState(() => JSON.parse(localStorage.getItem('yizi_image_colors') || '{}'));
+    const [showColorTag, setShowColorTag] = useState(() => localStorage.getItem('yizi_show_color_tag') === 'true');
+
+    useEffect(() => {
+        const updateColors = () => setImageColors(JSON.parse(localStorage.getItem('yizi_image_colors') || '{}'));
+        const updateToggle = () => setShowColorTag(localStorage.getItem('yizi_show_color_tag') === 'true');
+        
+        window.addEventListener('image-colors-updated', updateColors);
+        window.addEventListener('color-tag-toggled', updateToggle);
+        return () => {
+            window.removeEventListener('image-colors-updated', updateColors);
+            window.removeEventListener('color-tag-toggled', updateToggle);
+        }
+    }, []);
+
     const toggleFavorite = (e, path) => {
         e.stopPropagation();
         const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
@@ -572,18 +588,29 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                             draggable="false"
                                         />
                                     </div>
-                                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
                                         {img.name}
                                     </div>
 
-                                    {/* Favorite Heart */}
-                                    <button
-                                        onClick={(e) => toggleFavorite(e, img.path)}
-                                        className={`absolute top-2 left-2 p-1.5 z-30 transition-all drop-shadow-md ${favSet.has(img.path) ? 'text-[#A61616] opacity-100' : 'text-white/70 opacity-0 group-hover:opacity-100 hover:text-white'}`}
-                                        title={favSet.has(img.path) ? "Unfavorite" : "Favorite"}
-                                    >
-                                        <Heart size={18} fill={favSet.has(img.path) ? "currentColor" : "none"} strokeWidth={1.5} />
-                                    </button>
+                                    {/* Top Left Indicators (Color Tag & Favorite) */}
+                                    <div className="absolute top-2 left-2 flex items-center gap-2 z-30 pointer-events-none">
+                                        {/* Color Tag Dot */}
+                                        {showColorTag && imageColors[img.path] && (
+                                            <div 
+                                                className="w-4 h-4 rounded-full pointer-events-none shadow-[inset_0_2px_4px_rgba(0,0,0,0.15)] border-[1.5px] border-white/90"
+                                                style={{ backgroundColor: imageColors[img.path] }}
+                                            />
+                                        )}
+                                        
+                                        {/* Favorite Heart */}
+                                        <button
+                                            onClick={(e) => toggleFavorite(e, img.path)}
+                                            className={`pointer-events-auto transition-all drop-shadow-md ${favSet.has(img.path) ? 'text-[#A61616] opacity-100' : 'text-white/70 opacity-0 group-hover:opacity-100 hover:text-white'}`}
+                                            title={favSet.has(img.path) ? "Unfavorite" : "Favorite"}
+                                        >
+                                            <Heart size={18} fill={favSet.has(img.path) ? "currentColor" : "none"} strokeWidth={1.5} />
+                                        </button>
+                                    </div>
 
                                     {/* Selection Check Circle */}
                                     {selectedIndices.has(i) && (

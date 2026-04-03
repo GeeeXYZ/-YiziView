@@ -28,7 +28,7 @@ const FOLDER_COLORS = [
     { name: 'purple', color: 'bg-purple-500', hex: '#a855f7' },
 ];
 
-const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, setConfirmModal, refreshTrigger, searchQuery = '' }) => {
+const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasChildren = null, onRefresh, setConfirmModal, refreshTrigger, searchQuery = '', locatePath, locateTrigger }) => {
     const { expandedSet, setFolderExpanded } = useExpandedFolders() || {};
     const [isExpanded, setIsExpanded] = useState(() => {
         if (searchQuery) return false;
@@ -162,6 +162,34 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
             }
         }
     }, [searchQuery]);
+
+    const lastLocateTriggerRef = React.useRef(0);
+
+    // Auto expand for locate
+    useEffect(() => {
+        if (locatePath && locateTrigger > 0 && locateTrigger !== lastLocateTriggerRef.current) {
+            const normPath = path.replace(/\\/g, '/').toLowerCase();
+            const normLocate = locatePath.replace(/\\/g, '/').toLowerCase();
+            const isAncestor = normLocate.startsWith(normPath + '/');
+            const isTarget = normPath === normLocate;
+
+            if (isAncestor || isTarget) {
+                if (!isExpanded) {
+                    setIsExpanded(true);
+                    if (setFolderExpanded) setFolderExpanded(path, true);
+                }
+                if (!hasLoaded && hasChildren !== false) refreshSubfolders();
+                
+                if (isTarget && itemRef.current) {
+                    setTimeout(() => {
+                        itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                }
+
+                lastLocateTriggerRef.current = locateTrigger;
+            }
+        }
+    }, [locatePath, locateTrigger, isExpanded, hasLoaded, hasChildren]);
 
     const handleSelect = (e) => {
         e.stopPropagation();
@@ -343,12 +371,14 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     };
 
     const handleDragEnter = (e) => {
+        if (e.dataTransfer.types.includes('application/x-yizi-fav')) return;
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(true);
     };
 
     const handleDragOver = (e) => {
+        if (e.dataTransfer.types.includes('application/x-yizi-fav')) return;
         e.preventDefault();
         e.stopPropagation();
         // Always set to 'copy' to allow drop (actual operation determined in handleDrop)
@@ -357,12 +387,14 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
     };
 
     const handleDragLeave = (e) => {
+        if (e.dataTransfer.types.includes('application/x-yizi-fav')) return;
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
     };
 
     const handleDrop = async (e) => {
+        if (e.dataTransfer.types.includes('application/x-yizi-fav')) return;
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
@@ -514,6 +546,8 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                                 setConfirmModal={setConfirmModal}
                                 refreshTrigger={refreshTrigger}
                                 searchQuery={searchQuery}
+                                locatePath={locatePath}
+                                locateTrigger={locateTrigger}
                             />
                         ))
                     )}

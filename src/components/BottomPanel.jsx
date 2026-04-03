@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ConfigManager } from '../managers/ConfigManager';
 import { FileSystem } from '../managers/FileSystem';
-import { X, FileText, Copy, Tag } from 'lucide-react';
+import { X, FileText, Copy, Tag, Palette, Eraser } from 'lucide-react';
 
 const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio, isViewing = false }) => {
     const [commonTags, setCommonTags] = useState([]);
@@ -12,6 +12,60 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
     const [prompts, setPrompts] = useState({ positive: '', negative: '', type: null }); // type: 'a1111' | 'comfy'
     const [loadingPrompts, setLoadingPrompts] = useState(false);
     const [showPrompts, setShowPrompts] = useState(false);
+
+    // Color Tag State
+    const [showColorTag, setShowColorTag] = useState(() => localStorage.getItem('yizi_show_color_tag') === 'true');
+
+    const IMAGE_COLORS = [
+        { name: 'None', hex: '' },
+        { name: 'Rose', hex: '#fb7185' },     // Rose 400
+        { name: 'Amber', hex: '#fbbf24' },    // Amber 400
+        { name: 'Emerald', hex: '#34d399' },  // Emerald 400
+        { name: 'Sky', hex: '#38bdf8' },      // Sky 400
+        { name: 'Purple', hex: '#c084fc' }    // Purple 400
+    ];
+
+    const handleToggleColorTag = () => {
+        const newVal = !showColorTag;
+        setShowColorTag(newVal);
+        localStorage.setItem('yizi_show_color_tag', newVal);
+        window.dispatchEvent(new Event('color-tag-toggled'));
+    };
+
+    const handleColorSelect = (hex) => {
+        const colors = JSON.parse(localStorage.getItem('yizi_image_colors') || '{}');
+        const selectedFiles = [];
+        selectedIndices.forEach(idx => {
+            if(images[idx]) selectedFiles.push(images[idx].path);
+        });
+
+        selectedFiles.forEach(path => {
+            if(hex) {
+                colors[path] = hex;
+            } else {
+                delete colors[path];
+            }
+        });
+
+        localStorage.setItem('yizi_image_colors', JSON.stringify(colors));
+        window.dispatchEvent(new Event('image-colors-updated'));
+    };
+
+    const handleClearAllColorTags = () => {
+        const colors = JSON.parse(localStorage.getItem('yizi_image_colors') || '{}');
+        let modifications = 0;
+        images.forEach(img => {
+            if (colors[img.path]) {
+                delete colors[img.path];
+                modifications++;
+            }
+        });
+        
+        if (modifications > 0) {
+            localStorage.setItem('yizi_image_colors', JSON.stringify(colors));
+            window.dispatchEvent(new Event('image-colors-updated'));
+        }
+    };
 
     useEffect(() => {
         loadTags();
@@ -315,6 +369,45 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                 {/* Right Area */}
                 {!isViewing ? (
                     <div className="flex items-center gap-4 border-l border-neutral-700 pl-4">
+                        {/* Color Tag Mode */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleToggleColorTag}
+                                className={`p-1.5 rounded-md transition-all flex items-center justify-center w-8 h-8 ${showColorTag ? 'bg-neutral-800 text-gray-200 border border-neutral-600 shadow-inner' : 'text-gray-500 hover:text-gray-300 hover:bg-neutral-800 border border-transparent'}`}
+                                title="Toggle Color Tags"
+                            >
+                                <Palette size={14} />
+                            </button>
+                            {showColorTag && (
+                                <>
+                                    {hasSelection && (
+                                        <div className="flex gap-1.5 items-center bg-neutral-900 rounded-full px-2.5 py-1 border border-neutral-700 shadow-inner">
+                                            {IMAGE_COLORS.map(color => (
+                                                <button
+                                                    key={color.name}
+                                                    onClick={() => handleColorSelect(color.hex)}
+                                                    title={color.name}
+                                                    className={`w-4 h-4 rounded-full transition-transform hover:scale-125 border ${color.hex ? 'border-neutral-500/30' : 'border-gray-500 bg-neutral-800 flex items-center justify-center outline-none'}`}
+                                                    style={color.hex ? { backgroundColor: color.hex } : {}}
+                                                >
+                                                    {!color.hex && <X size={10} className="text-gray-500" strokeWidth={3} />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <button
+                                        onClick={handleClearAllColorTags}
+                                        className="text-gray-500 hover:text-red-400 p-1 rounded-md transition-colors border border-transparent hover:border-neutral-700 hover:bg-neutral-800"
+                                        title="Clear color tags from all images in view"
+                                    >
+                                        <Eraser size={14} />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        {showColorTag && <div className="h-4 w-px bg-neutral-700 mx-1"></div>}
+
                         <div className="flex items-center bg-neutral-900 rounded-md border border-neutral-700 p-0.5">
                             {[
                                 { id: '9:16', title: '9:16 Portrait', width: 9, height: 16 },
