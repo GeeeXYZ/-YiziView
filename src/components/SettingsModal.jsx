@@ -1,10 +1,102 @@
 import React, { useState, useEffect } from 'react';
-import { X, Trash2, Download, Upload, Settings as SettingsIcon } from 'lucide-react';
+import { X, Trash2, Download, Upload, Settings as SettingsIcon, Keyboard, ArrowLeft } from 'lucide-react';
+
+// ─── Keyboard Shortcut Data ────────────────────────────────────────────────
+const SHORTCUT_GROUPS = [
+    {
+        label: 'Grid — Browse & Open',
+        color: 'text-blue-400',
+        items: [
+            { keys: ['Enter'], desc: 'Open selected image fullscreen' },
+            { keys: ['Ctrl', 'Enter'], desc: 'Open selected image in panel view' },
+            { keys: ['Shift', 'Click'], desc: 'Range-select multiple images' },
+            { keys: ['Delete'], desc: 'Send selected image(s) to Recycle Bin' },
+            { keys: ['F'], desc: 'Toggle favourite (Single / Multi-select)' },
+            { keys: ['P'], desc: 'Toggle prompt view (Single image only)' },
+        ],
+    },
+    {
+        label: 'Viewer — Navigation',
+        color: 'text-emerald-400',
+        items: [
+            { keys: ['←', '→'], desc: 'Previous / Next image' },
+            { keys: ['Esc'], desc: 'Close viewer / cancel current edit' },
+            { keys: ['Space'], desc: 'Toggle slideshow autoplay' },
+            { keys: ['Scroll'], desc: 'Zoom in / out at cursor' },
+            { keys: ['Middle drag'], desc: 'Pan image freely' },
+        ],
+    },
+    {
+        label: 'Viewer — Edit Tools',
+        color: 'text-violet-400',
+        items: [
+            { keys: ['C'], desc: 'Crop tool' },
+            { keys: ['B'], desc: 'Brush / annotate tool' },
+            { keys: ['A'], desc: 'Adjust (color grading) tool' },
+            { keys: ['Enter'], desc: 'Confirm & save edits' },
+            { keys: ['Ctrl', 'Z'], desc: 'Undo last brush stroke' },
+            { keys: ['[', ']'], desc: 'Decrease / Increase brush size' },
+            { keys: ['F'], desc: 'Toggle favourite' },
+            { keys: ['T'], desc: 'Show / hide edit toolbar' },
+        ],
+    },
+];
+
+const Kbd = ({ children }) => (
+    <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-neutral-700 border border-neutral-500 rounded shadow-sm text-gray-200 min-w-[22px]">
+        {children}
+    </span>
+);
+
+const ShortcutsView = ({ onBack }) => (
+    <div className="flex flex-col" style={{ maxHeight: 'calc(80vh - 1px)' }}>
+        {/* Sub-header */}
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-neutral-700 shrink-0">
+            <button
+                onClick={onBack}
+                className="p-1.5 rounded-md hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors"
+                title="Back to Settings"
+            >
+                <ArrowLeft size={16} />
+            </button>
+            <Keyboard size={16} className="text-blue-400" />
+            <h3 className="text-sm font-semibold text-white">Keyboard Shortcuts</h3>
+        </div>
+
+        {/* Scrollable list */}
+        <div className="overflow-y-auto p-5 space-y-5">
+            {SHORTCUT_GROUPS.map(group => (
+                <div key={group.label}>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${group.color}`}>
+                        {group.label}
+                    </p>
+                    <div className="bg-neutral-800/50 border border-neutral-700 rounded-lg divide-y divide-neutral-700/60">
+                        {group.items.map((item, i) => (
+                            <div key={i} className="flex items-center justify-between px-4 py-2.5 gap-4">
+                                <span className="text-sm text-gray-300">{item.desc}</span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                    {item.keys.map((k, ki) => (
+                                        <React.Fragment key={ki}>
+                                            {ki > 0 && <span className="text-neutral-500 text-[10px] mx-1">/</span>}
+                                            <Kbd>{k}</Kbd>
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
 
 const SettingsModal = ({ isOpen, onClose }) => {
     const [clearing, setClearing] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
+    const [showShortcuts, setShowShortcuts] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(() => localStorage.getItem('settings_confirm_delete') !== 'false');
     const [cropOverwrite, setCropOverwrite] = useState(() => localStorage.getItem('settings_crop_overwrite') === 'true');
     const [thumbFit, setThumbFit] = useState(() => localStorage.getItem('settings_thumb_fit') || 'cover');
@@ -150,7 +242,11 @@ const SettingsModal = ({ isOpen, onClose }) => {
             const frontendSettings = {};
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key.startsWith('settings_') || key.startsWith('yizi_') || key.startsWith('last_')) {
+                if (key.startsWith('settings_') || 
+                    key.startsWith('yizi_') || 
+                    key.startsWith('last_') || 
+                    key.startsWith('viewer_') || 
+                    key.startsWith('sidebar_')) {
                     frontendSettings[key] = localStorage.getItem(key);
                 }
             }
@@ -194,24 +290,32 @@ const SettingsModal = ({ isOpen, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]">
-            <div className="bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-[500px] max-w-[90vw] max-h-[80vh] overflow-hidden flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-neutral-700">
-                    <div className="flex items-center gap-2">
-                        <SettingsIcon size={20} className="text-blue-400" />
-                        <h2 className="text-lg font-semibold text-white">Settings</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={onClose}>
+            <div className="bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-[500px] max-w-[90vw] max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                {/* Header — hidden when shortcuts view takes over with its own sub-header */}
+                {!showShortcuts && (
+                    <div className="flex items-center justify-between p-4 border-b border-neutral-700 shrink-0">
+                        <div className="flex items-center gap-2">
+                            <SettingsIcon size={20} className="text-blue-400" />
+                            <h2 className="text-lg font-semibold text-white">Settings</h2>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-1 hover:bg-neutral-800 rounded transition-colors text-gray-400 hover:text-white"
+                        >
+                            <X size={20} />
+                        </button>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-1 hover:bg-neutral-800 rounded transition-colors text-gray-400 hover:text-white"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
+                )}
 
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Keyboard Shortcuts sub-view */}
+                {showShortcuts ? (
+                    <ShortcutsView onBack={() => setShowShortcuts(false)} />
+                ) : (
+                    <>
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
                     {/* General Settings */}
                     <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">General</h3>
@@ -493,10 +597,31 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             </div>
                         </div>
                     </div>
+
+                    {/* Shortcuts shortcut */}
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Help</h3>
+                        <div className="bg-neutral-800/50 rounded-lg p-4 border border-neutral-700">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1">
+                                    <h4 className="text-white font-medium mb-1">Keyboard Shortcuts</h4>
+                                    <p className="text-sm text-gray-400">View a full list of keyboard shortcuts and mouse gestures.</p>
+                                </div>
+                                <button
+                                    onClick={() => setShowShortcuts(true)}
+                                    className="h-9 px-4 bg-neutral-700 hover:bg-neutral-600 text-gray-200 border border-neutral-600 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shrink-0"
+                                >
+                                    <Keyboard size={14} />
+                                    View Shortcuts
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t border-neutral-700 flex justify-end">
+                <div className="p-4 border-t border-neutral-700 flex justify-end shrink-0">
                     <button
                         onClick={onClose}
                         className="h-9 px-6 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-all text-sm font-medium border border-neutral-700"
@@ -504,6 +629,8 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         Done
                     </button>
                 </div>
+                    </>
+                )}
             </div>
         </div>
     );

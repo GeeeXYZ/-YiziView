@@ -401,6 +401,45 @@ function App() {
         }
       }
 
+      // Toggle Favorite (F) for active panel
+      if (e.key.toLowerCase() === 'f') {
+        if (activeState.viewingIndex !== null) return; // Handled by ImageViewer
+        if (activeState.selectedIndices.size > 0) {
+          e.preventDefault();
+          const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+          const currentFavsSet = new Set(favs);
+          
+          let allFav = true;
+          const pathsToToggle = [];
+          
+          activeState.selectedIndices.forEach(idx => {
+            if (activeState.images[idx]) {
+                const path = activeState.images[idx].path;
+                pathsToToggle.push(path);
+                if (!currentFavsSet.has(path)) {
+                    allFav = false;
+                }
+            }
+          });
+          
+          if (pathsToToggle.length > 0) {
+              let newFavs;
+              if (allFav) {
+                  // If all are already favs, remove them from favs
+                  newFavs = favs.filter(p => !pathsToToggle.includes(p));
+              } else {
+                  // Otherwise, add any that aren't already favs
+                  newFavs = [...favs];
+                  pathsToToggle.forEach(p => {
+                      if (!currentFavsSet.has(p)) newFavs.push(p);
+                  });
+              }
+              localStorage.setItem('yizi_fav_images', JSON.stringify(newFavs));
+              window.dispatchEvent(new Event('fav-images-updated'));
+          }
+        }
+      }
+
       // Select All (Ctrl+A) for active panel
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();

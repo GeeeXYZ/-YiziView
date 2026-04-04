@@ -39,6 +39,7 @@ const Panel = ({
     hasCloseButton,
 }) => {
     const [locateTrigger, setLocateTrigger] = React.useState(0);
+    const [isPanelMaximized, setIsPanelMaximized] = React.useState(false);
 
     const {
         currentFolder,
@@ -157,6 +158,35 @@ const Panel = ({
         localStorage.setItem(`sidebar_width_${panelId}`, sidebarWidth.toString());
     }, [sidebarWidth, panelId]);
 
+    // Keyboard shortcuts: Enter = fullscreen, Ctrl+Enter = panel-maximized
+    React.useEffect(() => {
+        if (!isActive) return; // only handle keys for the focused panel
+
+        const handleKeyDown = (e) => {
+            // Don't intercept when viewer is already open, or when typing in an input
+            if (viewingIndex !== null) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (selectedIndices.size !== 1) return;
+
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const index = Array.from(selectedIndices)[0];
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl/Cmd + Enter → panel-level view
+                    setIsPanelMaximized(true);
+                    setViewingIndex(index);
+                } else {
+                    // Enter → fullscreen view
+                    setIsPanelMaximized(false);
+                    setViewingIndex(index);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isActive, selectedIndices, viewingIndex]);
+
     return (
         <div
             id={`panel-container-${panelId}`}
@@ -245,25 +275,30 @@ const Panel = ({
                         </div>
                     )}
 
-                    {/* Bottom Panel (Fixed Overlay) */}
-                    {!loading && (
+                    {/* Bottom Panel (Fixed Overlay) — hidden when panel is maximized */}
+                    {!loading && !isPanelMaximized && (
                         <BottomPanel
+                            isActive={isActive}
                             selectedIndices={selectedIndices}
                             images={images}
                             aspectRatio={aspectRatio}
                             setAspectRatio={setAspectRatio}
-                            isViewing={viewingIndex !== null}
+                            isViewing={viewingIndex !== null && !isPanelMaximized}
                             onTagsChange={() => {
                                 if (currentFolder && currentFolder.startsWith('Tag: ')) {
                                     const tagName = currentFolder.replace('Tag: ', '');
                                     handleTagSelect(tagName);
                                 }
                             }}
+                            onPanelMaximize={(index) => {
+                                setIsPanelMaximized(true);
+                                setViewingIndex(index);
+                            }}
                         />
                     )}
 
-                    {/* Viewer */}
-                    {viewingIndex !== null && (
+                    {/* Viewer — fullscreen when opened via double-click, panel-contained when opened via Maximize button */}
+                    {viewingIndex !== null && !isPanelMaximized && (
                         <div className="fixed inset-0 bg-black z-[200] flex flex-col items-center justify-center">
                             <ImageViewer
                                 image={images[viewingIndex]}
@@ -271,8 +306,22 @@ const Panel = ({
                                 onNext={handleNext}
                                 onPrev={handlePrev}
                                 onDelete={handleViewerDelete}
+                                contained={false}
                             />
                         </div>
+                    )}
+                    {viewingIndex !== null && isPanelMaximized && (
+                        <ImageViewer
+                            image={images[viewingIndex]}
+                            onClose={() => {
+                                setViewingIndex(null);
+                                setIsPanelMaximized(false);
+                            }}
+                            onNext={handleNext}
+                            onPrev={handlePrev}
+                            onDelete={handleViewerDelete}
+                            contained={true}
+                        />
                     )}
                 </div>
             </div>

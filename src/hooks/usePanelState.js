@@ -12,7 +12,11 @@ export const usePanelState = (panelId) => {
     const [selectedIndices, setSelectedIndices] = useState(new Set());
     const [lastSelectedIndex, setLastSelectedIndex] = useState(null);
     const [viewingIndex, setViewingIndex] = useState(null);
-    const [aspectRatio, setAspectRatio] = useState('1:1');
+    const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem(`yizi_grid_aspect_ratio_${panelId}`) || '1:1');
+
+    useEffect(() => {
+        localStorage.setItem(`yizi_grid_aspect_ratio_${panelId}`, aspectRatio);
+    }, [aspectRatio, panelId]);
     const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
 
     const stateRef = useRef({ images, viewingIndex, selectedIndices });

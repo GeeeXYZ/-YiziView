@@ -7,9 +7,13 @@
 <a name="english"></a>
 ## English Version
 
-A high-performance Windows desktop image viewer built with Electron, React, and Vite, optimized for AI photography and prompt management.
+A high-performance Windows desktop image viewer built with Electron, React, and Vite. As an open-source alternative to mainstream paid image management tools like Eagle and Billfish, YiziView is uniquely optimized for AI photography, prompt management, and creative workflows.
 
 ### 🖼️ Key Features
+
+#### 🎨 Color Tagging & Visual Organization (New!)
+- **Quick Color Tagging**: Assign color tags to images swiftly for intuitive visual categorization.
+- **Global Color Management**: Toggleable global color interface, one-click clear all, and premium UI indicators mimicking macOS design aesthetics.
 
 #### Immersive Image Viewer
 - **Full-Screen Adaptation**: Images and videos automatically scale to fit the entire screen while maintaining their original aspect ratio.
@@ -80,9 +84,13 @@ Copyright (c) 2026 YiziView Contributors. All rights reserved.
 <a name="中文"></a>
 ## 中文说明
 
-一款基于 Electron、React 和 Vite 构建的高性能 Windows 桌面图像浏览器，专门为 AI 摄影和提示词管理而优化。
+一款基于 Electron、React 和 Vite 构建的高性能 Windows 桌面图像管理工具。作为 Eagle、Billfish 等主流付费图片管理软件的开源平替方案，YiziView 不仅拥有媲美商业软件的极致性能，更专门为 AI 摄影、提示词解析与创作者工作流进行了深度优化。
 
 ### 🖼️ 核心功能
+
+#### 🎨 颜色标记与视觉归类 (近期更新)
+- **快速颜色打标 (Color Tag)**：一键为图片分配专属颜色标签，实现高效的视觉化分组管理。
+- **全局色彩管理**：提供底部快速颜色切换面板、一键清空标签功能，以及极具高级感（类 macOS 阴影质感）的图片标签 UI 呈现。
 
 #### 沉浸式图像查看
 - **全屏自适应**：图片和视频自动缩放以填满屏幕，同时保持原始纵横比。

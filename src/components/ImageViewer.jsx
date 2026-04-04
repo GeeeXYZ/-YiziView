@@ -70,7 +70,7 @@ const ColorWheel = ({ label, value, onChange }) => {
     );
 };
 
-const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
+const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = false }) => {
     const [zoom, setZoom] = useState(1);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
@@ -78,7 +78,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const [isFav, setIsFav] = useState(false);
 
     // ===== Edit Mode =====
-    const [showToolbar, setShowToolbar] = useState(true);
+    const [showToolbar, setShowToolbar] = useState(() => {
+        const s = localStorage.getItem('viewer_show_toolbar');
+        return s === null ? true : s === 'true';
+    });
     const [isEditing, setIsEditing] = useState(false); // Only true when brush/crop is actively selected
     const [editTool, setEditTool] = useState(null); // null | 'brush' | 'crop' | 'adjust'
 
@@ -117,8 +120,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     }, []);
 
     // ===== Brush State =====
-    const [brushColor, setBrushColor] = useState('#FF3B30');
-    const [brushSize, setBrushSize] = useState(4);
+    const [brushColor, setBrushColor] = useState(() => localStorage.getItem('viewer_brush_color') || '#FF3B30');
+    const [brushSize, setBrushSize] = useState(() => parseInt(localStorage.getItem('viewer_brush_size') || '4'));
     const [isEraser, setIsEraser] = useState(false);
     const [isDrawing, setIsDrawing] = useState(false);
     const drawCanvasRef = useRef(null);
@@ -147,7 +150,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     const onNextRef = useRef(onNext);
 
     // ===== Action Bar Drag State =====
-    const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+    const [toolbarPos, setToolbarPos] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('viewer_toolbar_pos') || 'null') || { x: 0, y: 0 }; }
+        catch { return { x: 0, y: 0 }; }
+    });
     const toolbarDragStartRef = useRef(null);
 
     const handleToolbarPointerDown = (e) => {
@@ -185,6 +191,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
             window.removeEventListener('pointerup', handleToolbarPointerUp);
         };
     }, []);
+
+    // ===== Persist viewer preferences =====
+    useEffect(() => { localStorage.setItem('viewer_show_toolbar', showToolbar); }, [showToolbar]);
+    useEffect(() => { localStorage.setItem('viewer_brush_color', brushColor); }, [brushColor]);
+    useEffect(() => { localStorage.setItem('viewer_brush_size', brushSize); }, [brushSize]);
+    useEffect(() => { localStorage.setItem('viewer_toolbar_pos', JSON.stringify(toolbarPos)); }, [toolbarPos]);
 
     const getActiveUrl = () => {
         if (forceImageUrl) return forceImageUrl;
@@ -248,11 +260,15 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (isSaving) return;
+            // Don't intercept keys when typing in an input/textarea
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-            // Space key shouldn't trigger button clicks if focus is somewhere else
-            // and we explicitly don't want it to toggle UI per instruction.
+            // Space → toggle autoplay (only when not editing)
             if (e.key === ' ' || e.code === 'Space') {
-                e.preventDefault(); // Stop space from toggling default focused buttons
+                if (!isEditing) {
+                    e.preventDefault();
+                    setIsAutoPlay(prev => !prev);
+                }
                 return;
             }
 
@@ -262,33 +278,49 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
                 } else {
                     onClose();
                 }
+                return;
             }
+
+            // Navigation (only outside edit mode)
             if (!isEditing) {
-                if (e.key === 'ArrowRight') onNext();
-                if (e.key === 'ArrowLeft') onPrev();
+                if (e.key === 'ArrowRight') { onNext(); return; }
+                if (e.key === 'ArrowLeft') { onPrev(); return; }
                 if (e.key === 'Delete' || e.key === 'Backspace') {
                     if (onDelete) onDelete();
+                    return;
+                }
+                // F → toggle favourite
+                if (e.key.toLowerCase() === 'f') {
+                    e.preventDefault();
+                    toggleFavorite(e);
+                    return;
+                }
+                // T → toggle toolbar visibility
+                if (e.key.toLowerCase() === 't') {
+                    e.preventDefault();
+                    setShowToolbar(prev => !prev);
+                    return;
                 }
             }
 
-            // Edit tool shortcuts
-            if (showToolbar) {
-                if (e.key.toLowerCase() === 'c') {
-                    e.preventDefault();
-                    switchTool('crop');
-                } else if (e.key.toLowerCase() === 'b') {
-                    e.preventDefault();
-                    switchTool('brush');
-                } else if (e.key.toLowerCase() === 'a') {
-                    e.preventDefault();
-                    switchTool('adjust');
-                }
+            // Edit tool shortcuts (when toolbar is shown)
+            if (showToolbar && !isEditing) {
+                if (e.key.toLowerCase() === 'c') { e.preventDefault(); switchTool('crop'); return; }
+                if (e.key.toLowerCase() === 'b') { e.preventDefault(); switchTool('brush'); return; }
+                if (e.key.toLowerCase() === 'a') { e.preventDefault(); switchTool('adjust'); return; }
+            }
+
+            // [ / ] → brush size (only in brush mode)
+            if (isEditing && editTool === 'brush') {
+                if (e.key === '[') { e.preventDefault(); setBrushSize(prev => Math.max(1, prev - 1)); return; }
+                if (e.key === ']') { e.preventDefault(); setBrushSize(prev => Math.min(50, prev + 1)); return; }
             }
 
             // Undo for brush: Ctrl+Z
             if (isEditing && editTool === 'brush' && (e.ctrlKey || e.metaKey) && e.key === 'z') {
                 e.preventDefault();
                 undoBrush();
+                return;
             }
 
             // Enter to save edit
@@ -302,7 +334,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev, onDelete, isEditing, editTool, isSaving, showToolbar]);
+    }, [onClose, onNext, onPrev, onDelete, isEditing, editTool, isSaving, showToolbar, brushSize]);
+
 
     // ===== Reset on image change =====
     useEffect(() => {
@@ -1086,7 +1119,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete }) => {
 
     return (
         <div
-            className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden"
+            className={`${contained ? 'absolute' : 'fixed'} inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden`}
             onClick={onClose}
             tabIndex={-1}
         >

@@ -23,6 +23,7 @@ autoUpdater.logger = {
 
 // autoUpdater config
 let isAutoDownloadEnabled = false;
+let windowState = {};
 try {
   // Use synchronous fs to load settings before app is fully ready
   const fsSync = require('fs');
@@ -31,6 +32,11 @@ try {
     const data = fsSync.readFileSync(storePath, 'utf8');
     const settings = JSON.parse(data);
     isAutoDownloadEnabled = settings.autoDownload === true;
+  }
+  
+  const windowStatePath = path.join(app.getPath('userData'), 'window-state.json');
+  if (fsSync.existsSync(windowStatePath)) {
+    windowState = JSON.parse(fsSync.readFileSync(windowStatePath, 'utf8'));
   }
 } catch (e) { }
 autoUpdater.autoDownload = isAutoDownloadEnabled;
@@ -51,8 +57,10 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: windowState.bounds?.width || 1200,
+    height: windowState.bounds?.height || 800,
+    x: windowState.bounds?.x,
+    y: windowState.bounds?.y,
     show: false, // Don't show until ready-to-show
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
@@ -81,10 +89,31 @@ function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => {
+    if (windowState.isMaximized) {
+      mainWindow.maximize();
+    }
     mainWindow.show();
     // Reset zoom level to 100% on startup to rescue from previous sessions
     mainWindow.webContents.setZoomLevel(0);
   });
+
+  const saveWindowState = () => {
+    try {
+      if (!mainWindow.isDestroyed()) {
+        const fsSync = require('fs');
+        const statePath = path.join(app.getPath('userData'), 'window-state.json');
+        const state = {
+          bounds: mainWindow.getNormalBounds ? mainWindow.getNormalBounds() : mainWindow.getBounds(),
+          isMaximized: mainWindow.isMaximized()
+        };
+        fsSync.writeFileSync(statePath, JSON.stringify(state));
+      }
+    } catch(e) {
+      console.error('Failed to save window state:', e);
+    }
+  };
+
+  mainWindow.on('close', saveWindowState);
 
   // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

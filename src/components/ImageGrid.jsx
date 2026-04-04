@@ -573,7 +573,11 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                     onDragStart={(e) => handleDragStart(e, i)}
                                     className={`
                                         relative group cursor-pointer bg-neutral-800 rounded-lg overflow-hidden border-2 transition-all duration-200 image-card
-                                        ${selectedIndices.has(i) ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' : 'border-transparent hover:border-neutral-600'}
+                                        ${selectedIndices.has(i) 
+                                            ? (isActive 
+                                                ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' 
+                                                : 'border-neutral-500 shadow-[0_0_0_2px_rgba(115,115,115,0.3)]') 
+                                            : 'border-transparent hover:border-neutral-600'}
                                     `}
                                     style={{
                                         aspectRatio: aspectRatio.replace(':', '/')
@@ -614,8 +618,8 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
 
                                     {/* Selection Check Circle */}
                                     {selectedIndices.has(i) && (
-                                        <div className="absolute top-2 right-2 bg-blue-500 rounded-full p-0.5 shadow-sm z-20">
-                                            <Check size={12} className="text-white" strokeWidth={3} />
+                                        <div className={`absolute top-2 right-2 rounded-full p-0.5 shadow-sm z-20 ${isActive ? 'bg-blue-500' : 'bg-neutral-500'}`}>
+                                            <Check size={12} className={isActive ? "text-white" : "text-neutral-200"} strokeWidth={3} />
                                         </div>
                                     )}
                                 </div>

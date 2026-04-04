@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { ConfigManager } from '../managers/ConfigManager';
 import { FileSystem } from '../managers/FileSystem';
-import { X, FileText, Copy, Tag, Palette, Eraser } from 'lucide-react';
+import { X, FileText, Copy, Tag, Palette, Eraser, Maximize } from 'lucide-react';
 
-const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio, isViewing = false }) => {
+const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio, isViewing = false, onPanelMaximize }) => {
     const [commonTags, setCommonTags] = useState([]);
     const [loadingTags, setLoadingTags] = useState(false);
 
@@ -280,6 +280,25 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
         if (onTagsChange) onTagsChange();
     };
 
+    // Prompt keyboard shortcut ('P')
+    useEffect(() => {
+        if (!isActive) return;
+        
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            if (e.key.toLowerCase() === 'p') {
+                if (selectedIndices && selectedIndices.size === 1 && (prompts.positive || prompts.negative)) {
+                    e.preventDefault();
+                    setShowPrompts(prev => !prev);
+                }
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedIndices, prompts, isActive]);
+
     const hasSelection = selectedIndices && selectedIndices.size > 0;
 
     return (
@@ -432,6 +451,20 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                                 </button>
                             ))}
                         </div>
+
+                        {/* Maximize in Panel Button */}
+                        {selectedIndices.size === 1 && (
+                            <>
+                                <div className="h-4 w-px bg-neutral-700 mx-1"></div>
+                                <button
+                                    onClick={() => onPanelMaximize && onPanelMaximize(Array.from(selectedIndices)[0])}
+                                    className="p-1.5 rounded-md transition-colors text-gray-500 hover:text-gray-300 hover:bg-neutral-800"
+                                    title="Maximize in Panel"
+                                >
+                                    <Maximize size={16} />
+                                </button>
+                            </>
+                        )}
                     </div>
                 ) : (
                     selectedIndices.size === 1 && images[Array.from(selectedIndices)[0]] && (
@@ -450,7 +483,7 @@ const BottomPanel = ({ selectedIndices, images, onTagsChange, aspectRatio, setAs
                             className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${showPrompts ? 'text-blue-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             <FileText size={14} />
-                            {showPrompts ? 'Hide' : 'Prompt'}
+                            {showPrompts ? 'Hide' : <span><u className="underline-offset-2">P</u>rompt</span>}
                         </button>
                     </div>
                 )}
