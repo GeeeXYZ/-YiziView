@@ -100,6 +100,28 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 if (newSize !== current) {
                     gridItemSizeRef.current = newSize;
                     container.style.setProperty('--grid-item-size', `${newSize}px`);
+
+                    // Try focusing on the most recently selected image
+                    let targetIndex = null;
+                    if (selectedIndices && selectedIndices.size > 0) {
+                        targetIndex = Array.from(selectedIndices).pop(); // Use the last selected index
+                    }
+
+                    if (targetIndex !== null) {
+                        const width = container.clientWidth - 32; // padding px-4 * 2 = 32
+                        const gridGap = 16;
+                        const cols = Math.max(1, Math.floor((width + gridGap) / (newSize + gridGap)));
+                        
+                        const ratioParts = aspectRatio.split(':');
+                        const hRatio = parseFloat(ratioParts[1]) / parseFloat(ratioParts[0]);
+                        const calculatedItemHeight = newSize * hRatio + gridGap;
+                        
+                        const row = Math.floor(targetIndex / cols);
+                        const targetY = row * calculatedItemHeight;
+                        
+                        // Center the item vertically in the viewport
+                        container.scrollTop = targetY - (container.clientHeight / 2) + (calculatedItemHeight / 2);
+                    }
                 }
             }
         };
@@ -109,7 +131,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         return () => {
             container.removeEventListener('wheel', wheelHandler);
         };
-    }, []); // Empty dependency array means this runs once on mount
+    }, [selectedIndices, aspectRatio]);
 
     // Keyboard shortcuts moved to App.jsx for centralized management
     // Removed local useEffect for Ctrl+X/C/V

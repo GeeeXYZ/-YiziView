@@ -7,3 +7,4 @@
 - feat: persist main window dimensions, positions, and maximization states
 - feat: enhance backup payload to export UI states (sidebar width, viewer positions)
 - style: add blue/gray active state selection indicators for ImageGrid multi-panel clarity
+- feat: anchor grid layout zoom focus dynamically onto the user's active selection
