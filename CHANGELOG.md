@@ -1,51 +1,37 @@
 # CHANGELOG
 
-## v0.9.1 - Code Audit & Stability Patch
+## v0.9.1
 
-### 🐛 Bug Fixes
-- **Expanded Folders Persistence**: Fixed a silent data-loss bug where the `saveExpandedFolders` function body was empty, causing folder tree expanded states to never persist to disk across restarts.
-- **Thumbnail Quality Setting**: Fixed the preload bridge dropping the `size` parameter for `getThumbnail`, making the user's thumbnail quality preference actually take effect.
-- **Tag Path Shadowing**: Removed a local `fileTagsPath` redeclaration in the `move-items` IPC handler that shadowed and could diverge from the global definition.
-- **Dead Code Cleanup**: Removed an orphaned `beforeunload` handler in `App.jsx` that was declared but never bound to the window.
+🐛 Fixes
+- Fix expanded folders never persisting to disk (empty save function)
+- Fix thumbnail quality setting ignored (preload bridge dropped size param)
+- Fix fileTagsPath local shadowing in move-items handler
+- Harden PowerShell clipboard command against special chars
 
-### 🛡️ Security & Robustness
-- **Shell Injection Hardening**: Wrapped the PowerShell clipboard command in a script block (`& { ... }`) to prevent potential interpretation issues with special characters in file paths.
+⚡ Perf
+- Read thumbnail cache dir once instead of per-file during folder clear
+- Use ref for grid zoom wheel handler to avoid re-registering on selection change
 
-### ⚡ Performance
-- **Thumbnail Cache Clearing**: Optimized `clear-thumbnails-for-folder` to read the cache directory once instead of once-per-file, dramatically reducing I/O for large folders.
-- **Wheel Listener Stability**: Refactored the grid zoom wheel handler to read selection state via a ref, eliminating unnecessary listener re-registration on every selection change.
-- **Top-Level Imports**: Moved `require('url')` and deduplicated `require('crypto')` to the file header for consistent module resolution.
-
-### 🧹 Housekeeping
-- Removed residual debug `console.log` statements from `BottomPanel`, `main.cjs` clipboard handler.
-- Removed duplicate comments and ~40 lines of stale design-process notes from `ImageGrid.jsx`.
-- Removed unused `onDelete` prop from `Panel.jsx`.
-- Removed leftover `Sponsor` button from `Sidebar.jsx`.
-- Deleted orphaned test files (`hsl_test.js`, `electron/test.jpg`, `electron/test2.jpg`).
+🧹 Cleanup
+- Remove debug logs, stale comments, unused props, orphaned test files
+- Remove Sponsor button from sidebar
 
 ---
-*(中文版更新日志)*
 
-### 🐛 缺陷修复
-- **展开状态持久化修复**: 修复了一个严重的静默数据丢失 Bug —— `saveExpandedFolders` 函数体为空，导致文件夹树的展开状态在重启后从未被写入磁盘。
-- **缩略图质量设置生效**: 修复了 preload 桥接层丢失 `size` 参数的问题，现在用户在设置中调整的缩略图质量会实际生效。
-- **标签路径遮蔽**: 移除了 `move-items` IPC 处理器中局部重声明的 `fileTagsPath`，统一使用全局变量。
-- **清理死代码**: 移除了 `App.jsx` 中声明但从未绑定到窗口的 `beforeunload` 处理器。
+🐛 修复
+- 修复展开状态从未写入磁盘（save 函数体为空）
+- 修复缩略图质量设置无效（preload 桥丢失 size 参数）
+- 修复 move-items 中 fileTagsPath 局部遮蔽全局变量
+- 加固 PowerShell 剪贴板命令防特殊字符问题
 
-### 🛡️ 安全与健壮性
-- **Shell 注入防护**: 将 PowerShell 剪贴板命令包裹在脚本块 (`& { ... }`) 中，防止文件路径中的特殊字符被错误解析。
+⚡ 性能
+- 清理缩略图缓存时只读一次缓存目录而非逐文件读取
+- 网格缩放滚轮改用 ref 读取选中状态，避免重复注册监听器
 
-### ⚡ 性能优化
-- **缩略图缓存清理**: 优化了文件夹缩略图缓存清理逻辑，从"每个文件读一次缓存目录"降为"只读一次"，大幅减少大文件夹下的 I/O 次数。
-- **滚轮监听稳定性**: 重构了网格缩放的滚轮事件处理，改用 ref 读取选中状态，避免每次选中变化时重复注册/注销监听器。
-- **顶层模块引入**: 将 `require('url')` 和重复的 `require('crypto')` 统一移至文件顶部。
+🧹 整理
+- 清除残留调试日志、过时注释、未用属性、遗留测试文件
+- 移除侧边栏 Sponsor 按钮
 
-### 🧹 代码整理
-- 清除了 `BottomPanel`、`main.cjs` 剪贴板处理器中残留的调试日志。
-- 清除了 `ImageGrid.jsx` 中 ~40 行过时的设计思考注释和重复注释行。
-- 移除了 `Panel.jsx` 中未使用的 `onDelete` 属性。
-- 移除了 `Sidebar.jsx` 中的 Sponsor 按钮。
-- 删除了遗留的测试文件（`hsl_test.js`、`electron/test.jpg`、`electron/test2.jpg`）。
 
 ## v0.9.0 - The Color & Workflow Update
 
