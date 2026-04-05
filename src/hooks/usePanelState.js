@@ -17,6 +17,7 @@ export const usePanelState = (panelId) => {
     useEffect(() => {
         localStorage.setItem(`yizi_grid_aspect_ratio_${panelId}`, aspectRatio);
     }, [aspectRatio, panelId]);
+
     const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
 
     const stateRef = useRef({ images, viewingIndex, selectedIndices });

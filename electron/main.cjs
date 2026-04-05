@@ -4,6 +4,7 @@ const { join } = require('path');
 const fs = require('fs/promises');
 const chokidar = require('chokidar');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 let sharp;
 try {
   sharp = require('sharp');
@@ -369,7 +370,6 @@ ipcMain.handle('scan-folder', async (event, args) => {
 
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.mp4', '.webm', '.mov', '.mkv'];
     // Use pathToFileURL for safe encoding (handles Chinese, spaces, #, etc.)
-    const { pathToFileURL } = require('url');
 
     const images = await Promise.all(files
       .filter(file => {
@@ -488,7 +488,6 @@ ipcMain.handle('rename-item', async (event, { oldPath, newName }) => {
 
 ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
   // Move files/folders to targetPath
-  const fileTagsPath = path.join(app.getPath('userData'), 'file_tags.json');
   let successCount = 0;
   const pathUpdates = []; // Track {oldPath, newPath} for tag updates
 
@@ -729,6 +728,11 @@ let saveExpandedTimeout = null;
 const saveExpandedFolders = () => {
   if (saveExpandedTimeout) clearTimeout(saveExpandedTimeout);
   saveExpandedTimeout = setTimeout(async () => {
+    try {
+      await fs.writeFile(expandedFoldersPath, JSON.stringify([...expandedFoldersCache], null, 2));
+    } catch (e) {
+      console.error('Failed to save expanded folders:', e);
+    }
   }, 1000); // Save after 1s of inactivity
 };
 
@@ -806,7 +810,6 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
     if (cropData.overwrite) {
       try {
         // Invalidate thumbnail cache for the overwritten file
-        const crypto = require('crypto');
         const cacheDir = path.join(app.getPath('userData'), 'thumbnails');
         const hash = crypto.createHash('md5').update(finalPath).digest('hex');
 
@@ -939,10 +942,10 @@ const { clipboard } = require('electron');
 ipcMain.handle('copy-to-clipboard', async (event, filePaths) => {
   try {
     // Join paths with comma, wrap in single quotes, escape existing single quotes
+    // Escape for PowerShell single-quoted strings: only single quotes need doubling
+    // Also wrap the entire -Command in a script block to avoid interpretation issues
     const pathsArg = filePaths.map(p => `'${p.replace(/'/g, "''")}'`).join(',');
-
-    // PowerShell command: Set-Clipboard -Path 'path1','path2'
-    const command = `powershell -ExecutionPolicy Bypass -NoProfile -Command "Set-Clipboard -Path ${pathsArg}"`;
+    const command = `powershell -ExecutionPolicy Bypass -NoProfile -Command "& { Set-Clipboard -Path ${pathsArg} }"`;
 
     const { exec } = require('child_process');
     return new Promise((resolve) => {
@@ -958,8 +961,7 @@ ipcMain.handle('copy-to-clipboard', async (event, filePaths) => {
       });
     });
   } catch (e) {
-    console.error(e);
-    console.error(e);
+    console.error('Clipboard copy error:', e);
     return false;
   }
 });
@@ -1232,9 +1234,7 @@ ipcMain.handle('get-tags-for-files', async (event, filePaths) => {
 });
 
 ipcMain.handle('read-clipboard', async () => {
-  console.log('VERSION_DEBUG_CHECK_V2');
   const formats = clipboard.availableFormats();
-  console.log('Clipboard Formats:', formats);
 
   // 1. Try text/uri-list (Common for linux/browsers/some apps)
   if (formats.includes('text/uri-list')) {
@@ -1242,7 +1242,6 @@ ipcMain.handle('read-clipboard', async () => {
       const buffer = clipboard.readBuffer('text/uri-list');
       // Usually utf-8 or ascii
       const str = buffer.toString('utf-8');
-      console.log('Raw URI List:', str);
       // Format: line by line, each is a URI (file://...)
       const paths = str.split(/[\r\n]+/)
         .filter(line => line.trim().startsWith('file://'))
@@ -1263,7 +1262,6 @@ ipcMain.handle('read-clipboard', async () => {
         .filter(p => p);
 
       if (paths.length > 0) {
-        console.log('Read via text/uri-list:', paths);
         return paths.join('\n');
       }
     } catch (e) {
@@ -1542,19 +1540,21 @@ ipcMain.handle('clear-thumbnails-for-folder', async (event, folderPath) => {
     const dirents = await fs.readdir(folderPath, { withFileTypes: true });
     const files = dirents.filter(d => d.isFile()).map(d => path.join(folderPath, d.name));
 
+    // Read cache directory once instead of per-file
+    let cacheFiles = [];
+    try { cacheFiles = await fs.readdir(cacheDir); } catch (e) { }
+
     let deletedCount = 0;
     for (const filePath of files) {
       const hash = crypto.createHash('md5').update(filePath).digest('hex');
-      try {
-        // We might have multiple sizes, so we need to find all matching files in cacheDir
-        const cacheFiles = await fs.readdir(cacheDir);
-        for (const cacheFile of cacheFiles) {
-          if (cacheFile.startsWith(hash)) {
+      for (const cacheFile of cacheFiles) {
+        if (cacheFile.startsWith(hash)) {
+          try {
             await fs.unlink(path.join(cacheDir, cacheFile));
             deletedCount++;
-          }
+          } catch (e) { }
         }
-      } catch (e) { }
+      }
     }
     return { success: true, count: deletedCount };
   } catch (error) {

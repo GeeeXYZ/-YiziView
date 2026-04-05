@@ -185,15 +185,6 @@ function App() {
     };
 
     loadSavedSession();
-
-    // Auto-save on unload
-    const handleBeforeUnload = () => {
-      saveCurrentSession();
-    };
-
-    // Also save when major state changes (debounced lightly by nature of React updates not happening instantenously for everything)
-    // Actually, saveCurrentSession depends on state values. We can't attach it to beforeunload easily with closure staleness unless we use a ref or depend on everything.
-    // Better approach: Save on change with a small Effect or just use window.onbeforeunload with a Ref.
   }, []); // Run once on mount to load
 
   // Effect to save session on state changes (Debounced ideally, but valid for now)

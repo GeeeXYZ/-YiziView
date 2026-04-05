@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('electron', {
     getFilesByTag: (args) => ipcRenderer.invoke('get-files-by-tag', args),
     getTagsForFiles: (filePaths) => ipcRenderer.invoke('get-tags-for-files', filePaths),
     readImageMetadata: (filePath) => ipcRenderer.invoke('read-image-metadata', filePath),
-    getThumbnail: (filePath) => ipcRenderer.invoke('get-thumbnail', filePath),
+    getThumbnail: (filePath, size) => ipcRenderer.invoke('get-thumbnail', filePath, size),
     cropImage: (imagePath, cropData) => ipcRenderer.invoke('crop-image', { imagePath, cropData }),
     saveEditedImage: (imagePath, dataUrl, overwrite) => ipcRenderer.invoke('save-edited-image', { imagePath, dataUrl, overwrite }),
 

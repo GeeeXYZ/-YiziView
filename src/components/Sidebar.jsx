@@ -532,6 +532,8 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                     </div>
                 </div>
 
+
+
             </div>
         </ExpandedFoldersProvider>
     );

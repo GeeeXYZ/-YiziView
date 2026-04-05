@@ -124,7 +124,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
 
             const metadata = await FileSystem.readImageMetadata(image.path);
 
-            console.log('Metadata loaded:', metadata); // DEBUG
+
 
             // 1. Try A1111 / Parameters
             if (metadata.parameters) {

@@ -7,9 +7,10 @@ Please ask the user whether they want to do a `patch` (e.g. 0.8.4 -> 0.8.5), `mi
 
 // turbo-all
 1. Use `git log $(git describe --tags --abbrev=0)..HEAD --oneline` (if a previous tag exists) to find the latest changes. 
-2. Generate a "Minimal Release Log" (极简 update log) based on these changes, where each new feature or fix is described in a single short sentence.
-3. Prepend or append this minimal release log into a `CHANGELOG.md` file at the root of the project (create the file if it does not exist) with the target version number as a heading.
-4. Stage the files with `git add .` and commit them with a message like `git commit -m "docs: generate changelog"`.
-5. Use `npm version <type>` to automatically bump the version in `package.json`, create a release commit, and generate a Git tag. You should replace `<type>` with `patch`, `minor`, `major`, or the specified exact version. (Ensure commands are separated by `;` if chaining in PowerShell).
+2. Conceptualize the latest changes and generate a comprehensive "Bilingual Release Log" (中英双语 Update Log). Do NOT mix English and Chinese line-by-line. Instead, write the entire log cleanly in English first, grouped into logical categories like "✨ New Features", "🎨 UX & Interactions", and "🐛 Bug Fixes". Then, add a separator and write the entire translated log fully in Chinese below it.
+3. Prepend this new clean bilingual release log into `CHANGELOG.md` at the root of the project with the target version number as a heading (e.g., `## v0.9.0 - The Great Update`). Create the file if it does not exist.
+4. Stage the files with `git add .` and commit them with a message like `git commit -m "docs: append bilingual changelog"`.
+5. Use `npm version <type>` to automatically bump the version in `package.json`, create a release commit, and generate a Git tag. Replace `<type>` with `patch`, `minor`, `major`, or the specified exact version.
 6. Push the new commit and the new tag to the remote repository using `git push --follow-tags`.
-7. Inform the user that the new release has been successfully pushed and present the minimal update log to them.
+7. Output the generated cleanly separated bilingual Release Log in the chat in an easy-to-copy Markdown format.
+8. Attempt to automatically publish this release to GitHub by using the GitHub CLI. Execute `gh release create v<VERSION> --title "Release v<VERSION>" --notes-file CHANGELOG.md_temp`. (You should save the specific log for this version into a temporary file, pass it to `gh release`, and then delete the temp file). If the `gh` command is not installed or fails, instruct the user to copy the outputted log and paste it manually into the GitHub Releases page.

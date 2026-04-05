@@ -80,6 +80,9 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     // New states from instruction
     const gridItemSizeRef = React.useRef(200); // Zoom state ref for performance
 
+    const selectedIndicesRef = React.useRef(selectedIndices);
+    selectedIndicesRef.current = selectedIndices;
+
     // --- Zoom Logic ---
     // Add non-passive listener to prevent browser zoom
     useEffect(() => {
@@ -103,8 +106,9 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
 
                     // Try focusing on the most recently selected image
                     let targetIndex = null;
-                    if (selectedIndices && selectedIndices.size > 0) {
-                        targetIndex = Array.from(selectedIndices).pop(); // Use the last selected index
+                    const currentSelection = selectedIndicesRef.current;
+                    if (currentSelection && currentSelection.size > 0) {
+                        targetIndex = Array.from(currentSelection).pop();
                     }
 
                     if (targetIndex !== null) {
@@ -131,12 +135,11 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         return () => {
             container.removeEventListener('wheel', wheelHandler);
         };
-    }, [selectedIndices, aspectRatio]);
+    }, [aspectRatio]);
 
     // Keyboard shortcuts moved to App.jsx for centralized management
     // Removed local useEffect for Ctrl+X/C/V
 
-    // --- Native Drag (Output) ---
     // --- Native Drag (Output) ---
     const handleDragStart = (e, index) => {
         let paths = [];
@@ -413,23 +416,18 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         // Finalize Selection
         // Calculate collision with all children
         const box = getNormalizedBox(selectionBox);
-        const newSelectedIndices = new Set(e.ctrlKey ? selectedIndices : []); // Keep existing if Ctrl held
+        const newSelectedIndices = new Set(e.ctrlKey ? selectedIndices : []);
 
-        // Use robust querySelector instead of children navigation
-        // const gridChildren = containerRef.current.children[0].children; // Unsafe, Removed
         const items = containerRef.current.querySelectorAll('.image-card');
-
         items.forEach((item, index) => {
             const itemRect = item.getBoundingClientRect();
             const containerRect = containerRef.current.getBoundingClientRect();
 
-            // Item position relative to container (scrolled)
             const itemLeft = itemRect.left - containerRect.left + containerRef.current.scrollLeft;
             const itemTop = itemRect.top - containerRect.top + containerRef.current.scrollTop;
             const itemRight = itemLeft + itemRect.width;
             const itemBottom = itemTop + itemRect.height;
 
-            // Check intersection
             if (
                 itemLeft < box.x + box.w &&
                 itemRight > box.x &&
@@ -440,26 +438,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             }
         });
 
-        // We need to communicate this batch result up to App.
-        // Since onImageClick handles single toggles, we need a new prop onBatchSelect?
-        // Or we just synthesize calls? No batch is better.
-        // But App doesn't have onBatchSelect. 
-        // Let's HACK for now: Iterate and call? No, too many renders.
-        // Ideally we refactor App to accept `setSelectedIndices` directly or `onSelectionChange`.
-        // BUT, I can't change App prop signature easily without another rewrite.
-        // Wait, onImageClick(index, e).
-
-        // Let's just update selectedIndices directly via a new prop `onSelectionChange`?
-        // Or change `onImageClick` to handle a Set? No.
-
-        // I'll update App interaction in a second, but let's stick to modifying ImageGrid first. 
-        // I will assume `onSelectionChange` exists? No, I must modify App again if I add it.
-        // LIMITATION: I can only edit one file per tool use if strict. 
-        // But I know I can modify App next step.
-        // Whatever, I'll pass a special event to onImageClick? 
-        // `onImageClick(newSet)`?
-
-        // Let's add `onBatchSelect` prop to ImageGrid now, and allow it to be undefined, then update App.
+        // Communicate batch selection result to parent
         if (onBatchSelect) {
             onBatchSelect(newSelectedIndices);
         }

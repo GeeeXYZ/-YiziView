@@ -33,7 +33,6 @@ const Panel = ({
     panelId,
     isActive,
     panelState,
-    onDelete,
     onActivate,
     setConfirmModal,
     hasCloseButton,
