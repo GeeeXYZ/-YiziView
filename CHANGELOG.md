@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v0.9.3
+
+✨ Features
+- Enable differential NSIS Blockmap compression to radically reduce delta update sizes in the future
+
+🐛 Fixes
+- Fix electron-builder artifact naming variables to correctly sanitize executable filenames
+- Remove orphaned temporary release documentation from repository tree
+
+---
+
+✨ 🆕 新特性
+- 正式解封底层基础字典压缩，全面激活 NSIS Blockmap 无缝差量更新引擎，极大化缩减未来更新下载体积
+
+🐛 修复
+- 修复并规范了打包底层的全局物理命名规则，消除了跨系统下载因空格等特殊字符导致的偶发 404 中断
+- 全面清除了上个周期遗留在代码树中的孤立临时发布文稿
+
+
 ## v0.9.2
 
 ✨ Features
