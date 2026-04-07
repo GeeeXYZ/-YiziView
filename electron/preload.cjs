@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electron', {
     moveItems: (sourcePaths, targetPath) => ipcRenderer.invoke('move-items', { sourcePaths, targetPath }),
     copyItems: (sourcePaths, targetPath, overwrite) => ipcRenderer.invoke('copy-items', { sourcePaths, targetPath, overwrite }),
     checkCollisions: (sourcePaths, targetPath) => ipcRenderer.invoke('check-collisions', { sourcePaths, targetPath }),
+    readLibraryFiles: (dirPath) => ipcRenderer.invoke('read-library-files', dirPath),
 
     // Drag & Drop
     getFilePath: (file) => {
@@ -96,5 +97,19 @@ contextBridge.exposeInMainWorld('electron', {
         const subscription = (event, msg) => callback(msg);
         ipcRenderer.on('updater-log', subscription);
         return () => ipcRenderer.removeListener('updater-log', subscription);
+    },
+
+    // Plugins
+    pluginAPI: {
+        getPlugins: () => ipcRenderer.invoke('get-plugins'),
+        getAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
+        openPluginDir: () => ipcRenderer.send('plugin-open-dir'),
+        togglePlugin: (id, enabled) => ipcRenderer.invoke('plugin-toggle', { id, enabled }),
+        deletePlugin: (id) => ipcRenderer.invoke('plugin-delete', id)
+    },
+    onPluginChanged: (callback) => {
+        const subscription = () => callback();
+        ipcRenderer.on('plugin-changed', subscription);
+        return () => ipcRenderer.removeListener('plugin-changed', subscription);
     }
 });

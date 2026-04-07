@@ -4,6 +4,14 @@ import SplitViewContainer from './components/SplitViewContainer'
 import ConfirmModal from './components/ui/ConfirmModal'
 import SettingsModal from './components/SettingsModal'
 import { usePanelState } from './hooks/usePanelState'
+import { PluginEngine } from './managers/PluginEngine'
+import DynamicBottomDock from './components/DynamicBottomDock'
+import DynamicRightDock from './components/DynamicRightDock'
+import ImageViewer from './components/ImageViewer'
+import { Columns, Rows, Plus, FolderPlus } from 'lucide-react'
+import logo from './assets/logo.svg'
+import ExtensionSlot from './components/ExtensionSlot'
+import PluginMenuDropdown from './components/PluginMenuDropdown'
 
 function App() {
   // Appearance & UI Management
@@ -13,6 +21,7 @@ function App() {
   const [confirmModal, setConfirmModal] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [globalViewerImage, setGlobalViewerImage] = useState(null);
 
   useEffect(() => {
     if (!window.electron?.onUpdateStateChange) return;
@@ -38,6 +47,80 @@ function App() {
   const panel2State = usePanelState('panel-2');
   const panel3State = usePanelState('panel-3');
 
+  // Map panel IDs to their states
+  const panelStates = {
+    'panel-1': panel1State,
+    'panel-2': panel2State,
+    'panel-3': panel3State,
+  };
+
+  // Get active panel state
+  const getActivePanelState = () => panelStates[activePanelId];
+
+  const stateRef = React.useRef({ panels, activePanelId, panelStates });
+  stateRef.current = { panels, activePanelId, panelStates };
+
+  // Plugin Engine Registration
+  useEffect(() => {
+    PluginEngine.setAppHooks({
+      addCustomPanel: (id, Component, title) => {
+        const { panels } = stateRef.current;
+        if (panels.length >= 3) return; // limit to 3 max for now
+        
+        let finalId = id;
+        let counter = 1;
+        while (panels.some(p => p.id === finalId)) {
+          finalId = `${id}-${counter}`;
+          counter++;
+        }
+
+        setPanels(prev => [...prev, { id: finalId, type: 'custom', component: Component, title }]);
+        setActivePanelId(finalId);
+      },
+      getCurrentFolder: () => {
+        const { activePanelId, panelStates } = stateRef.current;
+        const activeState = panelStates[activePanelId];
+        return activeState ? activeState.currentFolder : null;
+      }
+    });
+
+    PluginEngine.initialize();
+  }, []);
+
+  // Events & Hot Reload
+  useEffect(() => {
+        const handleContextMenuMsg = (e, msg) => {
+            if (msg === 'reload') window.location.reload();
+            if (msg === 'toggle-devtools' && window.electron) window.electron.ipcRenderer.send('toggle-devtools');
+            if (msg === 'quit' && window.electron) window.electron.ipcRenderer.send('quit');
+        };
+        const handleShowSettings = () => setIsSettingsOpen(true);
+        const handlePluginChanged = () => {
+            console.log('[Plugin HotReload] Plugin code changed. Reloading app...');
+            window.location.reload();
+        };
+
+        const handleOpenGlobalViewer = (e) => {
+            if (e.detail && e.detail.image) {
+                setGlobalViewerImage(e.detail.image);
+            }
+        };
+
+        window.addEventListener('context-menu-action', handleContextMenuMsg);
+        window.addEventListener('open-global-viewer', handleOpenGlobalViewer);
+        
+        let stopPluginWatcher = null;
+        if (window.electron && window.electron.onPluginChanged) {
+            stopPluginWatcher = window.electron.onPluginChanged(handlePluginChanged);
+        }
+
+        return () => {
+            window.removeEventListener('context-menu-action', handleContextMenuMsg);
+            window.removeEventListener('open-global-viewer', handleOpenGlobalViewer);
+            if (stopPluginWatcher) stopPluginWatcher();
+        };
+    }, []);
+
   // Lock UI Zoom: Prevent Ctrl + Mouse wheel zooming
   useEffect(() => {
     const handleWheel = (e) => {
@@ -48,16 +131,6 @@ function App() {
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => window.removeEventListener('wheel', handleWheel);
   }, []);
-
-  // Map panel IDs to their states
-  const panelStates = {
-    'panel-1': panel1State,
-    'panel-2': panel2State,
-    'panel-3': panel3State,
-  };
-
-  // Get active panel state
-  const getActivePanelState = () => panelStates[activePanelId];
 
   // Panel management functions
   const handleAddPanel = () => {
@@ -466,20 +539,109 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-neutral-900 text-white overflow-hidden">
-      {/* Main Content - Split View */}
-      <SplitViewContainer
-        panels={panels}
-        layout={layout}
-        activePanelId={activePanelId}
-        onLayoutChange={handleLayoutChange}
-        onAddPanel={handleAddPanel}
-        onRemovePanel={handleRemovePanel}
-        onPanelActivate={handlePanelActivate}
-        onAddFolder={handleAddFolder}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        renderPanel={renderPanel}
-        hasUpdate={hasUpdate}
-      />
+      {/* Global Top Bar */}
+      <div className="h-12 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-900/50 shrink-0 titlebar-drag-region">
+          {/* Left: Logo and Add Folder */}
+          <div className="flex items-center gap-3 no-drag">
+              <div className="relative cursor-pointer" onClick={() => setIsSettingsOpen(true)} title="Settings">
+                  <img
+                      src={logo}
+                      alt="YiziView"
+                      className="h-7 w-auto opacity-90 hover:opacity-100 transition-opacity"
+                  />
+                  {hasUpdate && (
+                      <span className="absolute top-0 -right-1 flex h-2.5 w-2.5">
+                          <span className="relative inline-flex rounded-full h-full w-full bg-red-500 border border-neutral-900 shadow-sm"></span>
+                      </span>
+                  )}
+              </div>
+              <div className="h-6 w-px bg-neutral-700"></div>
+              <button
+                  onClick={handleAddFolder}
+                  className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white text-xs py-1.5 px-3 rounded flex items-center gap-1.5 border border-neutral-700 transition-colors h-7"
+                  title="Add Folder to Active Panel"
+              >
+                  <FolderPlus size={14} /> Add Folder
+              </button>
+          </div>
+
+          {/* Center: Combined Layout and Panel Controls */}
+          <div className="flex items-center gap-3 no-drag">
+              {/* Layout Switcher */}
+              <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-medium">Layout:</span>
+                  <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
+                      <button
+                          onClick={() => handleLayoutChange('horizontal')}
+                          className={`p-1.5 rounded transition-colors ${layout === 'horizontal'
+                              ? 'bg-neutral-700 text-white'
+                              : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                          title="Horizontal Split"
+                      >
+                          <Columns size={14} />
+                      </button>
+                      <button
+                          onClick={() => handleLayoutChange('vertical')}
+                          className={`p-1.5 rounded transition-colors ${layout === 'vertical'
+                              ? 'bg-neutral-700 text-white'
+                              : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                          title="Vertical Split"
+                      >
+                          <Rows size={14} />
+                      </button>
+                  </div>
+              </div>
+
+              <div className="h-6 w-px bg-neutral-700"></div>
+
+              {/* Panel Controls */}
+              <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-medium">Panels:</span>
+                  <div className="flex items-center gap-2 bg-neutral-900 rounded border border-neutral-700 px-2 py-1">
+                      <span className="text-xs text-gray-400">
+                          {panels.length}
+                      </span>
+                      {panels.length < 3 && (
+                          <>
+                              <div className="h-3 w-px bg-neutral-700"></div>
+                              <button
+                                  onClick={handleAddPanel}
+                                  className="p-0.5 rounded hover:bg-neutral-700 text-blue-400 hover:text-blue-300 transition-colors"
+                                  title="Add Panel (Ctrl+Shift+\)"
+                              >
+                                  <Plus size={14} />
+                              </button>
+                          </>
+                      )}
+                  </div>
+              </div>
+          </div>
+
+          {/* Right: Plugin UI actions & Spacer for OS window controls */}
+          <div className="flex items-center justify-end h-full">
+              <div className="flex items-center gap-2 no-drag pr-2">
+                  <ExtensionSlot name="topbar-actions" />
+                  <PluginMenuDropdown />
+              </div>
+              <div className="w-[138px] shrink-0" />
+          </div>
+      </div>
+
+      {/* Main Content - Dock Layout Support */}
+      <div className="flex flex-1 overflow-hidden relative">
+        <div className="flex-1 flex flex-col relative overflow-hidden">
+          <SplitViewContainer
+            panels={panels}
+            layout={layout}
+            onRemovePanel={handleRemovePanel}
+            renderPanel={renderPanel}
+          />
+          <DynamicBottomDock />
+        </div>
+        <DynamicRightDock />
+      </div>
 
       {/* Confirm Modal */}
       <ConfirmModal
@@ -492,6 +654,17 @@ function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
+
+      {/* Global Image Viewer for Plugins */}
+      {globalViewerImage && (
+        <div className="fixed inset-0 bg-black z-[300] flex flex-col items-center justify-center">
+          <ImageViewer
+            image={globalViewerImage}
+            onClose={() => setGlobalViewerImage(null)}
+            contained={false}
+          />
+        </div>
+      )}
     </div>
   )
 }

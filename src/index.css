@@ -36,3 +36,9 @@ body {
 .titlebar-drag-region a {
   -webkit-app-region: no-drag;
 }
+
+@keyframes shine {
+  0% { transform: translateX(-150%) skewX(30deg); }
+  50% { transform: translateX(150%) skewX(30deg); }
+  100% { transform: translateX(150%) skewX(30deg); }
+}

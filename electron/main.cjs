@@ -13,6 +13,7 @@ try {
 }
 
 const { autoUpdater } = require('electron-updater');
+const pluginManager = require('./managers/PluginManager.cjs');
 
 // Setup detailed updater logging to stdout
 autoUpdater.logger = {
@@ -163,6 +164,9 @@ app.whenReady().then(async () => {
     console.log('[updater] Clean up non-critical cache skipped:', e.message);
   }
 
+  // Initialize plugins
+  await pluginManager.init();
+
   // Register protocol for serving local files
   protocol.registerFileProtocol('media', (request, callback) => {
     let url = request.url.replace('media://local/', '');
@@ -201,6 +205,33 @@ app.whenReady().then(async () => {
       autoUpdater.checkForUpdatesAndNotify().catch(console.error);
     }, 3000);
   }
+
+  // --- PLUGIN HOT RELOAD (Development) ---
+  if (!app.isPackaged) {
+      console.log('[Dev] Starting Plugin Watcher for Hot Reload...');
+      const pluginsPath = path.join(__dirname, '../plugins');
+      const watcher = chokidar.watch(pluginsPath, {
+          ignored: /(^|[\/\\])\../, // ignore dotfiles
+          persistent: true,
+          ignoreInitial: true,
+      });
+
+      let reloadTimeout = null;
+      watcher.on('all', (event, filePath) => {
+          if (filePath.endsWith('.js') || filePath.endsWith('.json') || filePath.endsWith('.css')) {
+              // Debounce reload slightly
+              clearTimeout(reloadTimeout);
+              reloadTimeout = setTimeout(async () => {
+                  console.log(`[Plugin HotReload] Triggered by ${event} in ${filePath}`);
+                  await pluginManager.scanPlugins();
+                  if (mainWindow && !mainWindow.isDestroyed()) {
+                      mainWindow.webContents.send('plugin-changed');
+                  }
+              }, 200);
+          }
+      });
+  }
+
 });
 
 app.on('window-all-closed', () => {
@@ -209,6 +240,27 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('ping', () => 'pong');
+
+ipcMain.handle('get-plugins', () => {
+    return pluginManager.getRendererPluginsConfig();
+});
+
+ipcMain.handle('get-all-plugins', () => {
+    return pluginManager.getAllPlugins();
+});
+
+ipcMain.on('plugin-open-dir', () => {
+    pluginManager.openPluginDir();
+});
+
+ipcMain.handle('plugin-toggle', (event, { id, enabled }) => {
+    pluginManager.togglePlugin(id, enabled);
+    return true;
+});
+
+ipcMain.handle('plugin-delete', async (event, id) => {
+    return await pluginManager.deletePlugin(id);
+});
 
 ipcMain.handle('check-for-updates', async () => {
   try {
@@ -748,7 +800,8 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
     // Determine the final output path based on overwrite flag inside cropData
     const finalPath = cropData.overwrite ? imagePath : path.join(dir, `${basename}_crop_${Date.now()}${ext}`);
 
-    let pipeline = sharp(imagePath);
+    const fileBuffer = await fs.readFile(imagePath);
+    let pipeline = sharp(fileBuffer);
 
     if (cropData.rotation) {
       // For rotated images, the bounding area changes. Get exact dimensions first.
@@ -790,7 +843,7 @@ ipcMain.handle('crop-image', async (event, { imagePath, cropData }) => {
         return { success: false, error: 'Crop area is empty after clamping.' };
       }
 
-      pipeline = sharp(imagePath).extract({ left, top, width, height });
+      pipeline = sharp(fileBuffer).extract({ left, top, width, height });
     }
 
     if (cropData.targetWidth || cropData.targetHeight) {
@@ -896,6 +949,26 @@ ipcMain.handle('set-folder-expanded', async (event, { path: folderPath, expanded
   }
   saveExpandedFolders();
   return true;
+});
+
+ipcMain.handle('read-library-files', async (event, dirPath) => {
+  try {
+    const fsNode = require('fs');
+    if (!fsNode.existsSync(dirPath)) return [];
+    
+    // Safety check if dir is actually a dir
+    const stat = fsNode.statSync(dirPath);
+    if (!stat.isDirectory()) return [];
+
+    const files = fsNode.readdirSync(dirPath);
+    return files.filter(f => f.endsWith('.txt')).map(f => ({
+        name: f,
+        path: path.join(dirPath, f)
+    }));
+  } catch (e) {
+    console.error('read-library-files error:', e);
+    return [];
+  }
 });
 
 const sessionPath = path.join(app.getPath('userData'), 'session.json');
@@ -1501,10 +1574,16 @@ async function generateThumbnailInternal(filePath, size = 600) {
 
   // Atomic write to avoid black thumbnails/partial reads
   const tmpPath = `${cachePath}.tmp`;
-  await sharp(filePath)
-    .resize(size, size, { fit: 'outside', rotate: true, withoutEnlargement: true })
-    .jpeg({ quality: 85 })
-    .toFile(tmpPath);
+  try {
+    const fileBuffer = await fs.readFile(filePath);
+    await sharp(fileBuffer)
+      .resize(size, size, { fit: 'outside', rotate: true, withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toFile(tmpPath);
+  } catch (error) {
+    if (cachePath) await fs.unlink(tmpPath).catch(() => {});
+    throw error;
+  }
   await fs.rename(tmpPath, cachePath);
 
   return `media://local/${cachePath.replace(/\\/g, '/')}`;

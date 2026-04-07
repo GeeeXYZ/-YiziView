@@ -207,9 +207,9 @@ const Panel = ({
                 />
             </div>
             
-            {/* Resize Handle */}
+            {/* Invisible Resize Handle */}
             <div 
-                className="w-1 cursor-col-resize hover:bg-blue-500/50 bg-neutral-700/50 transition-colors shrink-0 z-10"
+                className="relative w-[8px] shrink-0 z-10 cursor-col-resize hover:bg-blue-500/20 transition-colors"
                 onMouseDown={handleSidebarMouseDown}
                 onDoubleClick={() => setSidebarWidth(224)}
                 title="Double click to reset width"

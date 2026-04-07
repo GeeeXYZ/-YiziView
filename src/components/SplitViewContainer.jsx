@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Columns, Rows, X, Plus, FolderPlus } from 'lucide-react';
-import logo from '@/assets/logo.svg';
+import { X } from 'lucide-react';
 
 /**
  * SplitViewContainer - Manages multiple panels with resizable splits
@@ -8,15 +7,8 @@ import logo from '@/assets/logo.svg';
 const SplitViewContainer = ({
     panels,
     layout,
-    activePanelId,
-    onLayoutChange,
-    onAddPanel,
     onRemovePanel,
-    onPanelActivate,
-    renderPanel,
-    onAddFolder,
-    onOpenSettings,
-    hasUpdate
+    renderPanel
 }) => {
     const [panelSizes, setPanelSizes] = useState(
         panels.map(() => 100 / panels.length)
@@ -93,92 +85,7 @@ const SplitViewContainer = ({
         : 'flex flex-col flex-1 min-h-0';
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
-            {/* Top Bar with Logo and Controls */}
-            <div className="h-12 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-900/50 shrink-0 titlebar-drag-region">
-                {/* Left: Logo and Add Folder */}
-                <div className="flex items-center gap-3 no-drag">
-                    <div className="relative cursor-pointer" onClick={onOpenSettings} title="Settings">
-                        <img
-                            src={logo}
-                            alt="YiziView"
-                            className="h-7 w-auto opacity-90 hover:opacity-100 transition-opacity"
-                        />
-                        {hasUpdate && (
-                            <span className="absolute top-0 -right-1 flex h-2.5 w-2.5">
-                                <span className="relative inline-flex rounded-full h-full w-full bg-red-500 border border-neutral-900 shadow-sm"></span>
-                            </span>
-                        )}
-                    </div>
-                    <div className="h-6 w-px bg-neutral-700"></div>
-                    <button
-                        onClick={onAddFolder}
-                        className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white text-xs py-1.5 px-3 rounded flex items-center gap-1.5 border border-neutral-700 transition-colors h-7"
-                        title="Add Folder to Active Panel"
-                    >
-                        <FolderPlus size={14} /> Add Folder
-                    </button>
-                </div>
-
-                {/* Center: Combined Layout and Panel Controls */}
-                <div className="flex items-center gap-3 no-drag">
-                    {/* Layout Switcher */}
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 font-medium">Layout:</span>
-                        <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
-                            <button
-                                onClick={() => onLayoutChange('horizontal')}
-                                className={`p-1.5 rounded transition-colors ${layout === 'horizontal'
-                                    ? 'bg-neutral-700 text-white'
-                                    : 'text-gray-500 hover:text-gray-300'
-                                    }`}
-                                title="Horizontal Split"
-                            >
-                                <Columns size={14} />
-                            </button>
-                            <button
-                                onClick={() => onLayoutChange('vertical')}
-                                className={`p-1.5 rounded transition-colors ${layout === 'vertical'
-                                    ? 'bg-neutral-700 text-white'
-                                    : 'text-gray-500 hover:text-gray-300'
-                                    }`}
-                                title="Vertical Split"
-                            >
-                                <Rows size={14} />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="h-6 w-px bg-neutral-700"></div>
-
-                    {/* Panel Controls */}
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 font-medium">Panels:</span>
-                        <div className="flex items-center gap-2 bg-neutral-900 rounded border border-neutral-700 px-2 py-1">
-                            <span className="text-xs text-gray-400">
-                                {panels.length}
-                            </span>
-                            {panels.length < 3 && (
-                                <>
-                                    <div className="h-3 w-px bg-neutral-700"></div>
-                                    <button
-                                        onClick={onAddPanel}
-                                        className="p-0.5 rounded hover:bg-neutral-700 text-blue-400 hover:text-blue-300 transition-colors"
-                                        title="Add Panel (Ctrl+Shift+\)"
-                                    >
-                                        <Plus size={14} />
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Right: Spacer for window controls */}
-                <div className="w-32"></div>
-            </div>
-
-            {/* Panels Container */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
             <div className={`${containerClass} split-panels-container`}>
                 {panels.map((panel, index) => (
                     <React.Fragment key={panel.id}>
@@ -202,15 +109,23 @@ const SplitViewContainer = ({
                             )}
                         </div>
 
-                        {/* Resize Handle */}
+                        {/* Resize Handle (1px visual with expanded invisible hit area) */}
                         {index < panels.length - 1 && (
                             <div
-                                className={`${layout === 'horizontal'
-                                    ? 'w-1 cursor-col-resize hover:bg-blue-500/50'
-                                    : 'h-1 cursor-row-resize hover:bg-blue-500/50'
-                                    } bg-neutral-700 transition-colors shrink-0 no-drag`}
+                                className={`relative shrink-0 no-drag bg-neutral-700
+                                    ${layout === 'horizontal'
+                                    ? 'w-[2px] cursor-col-resize'
+                                    : 'h-[2px] cursor-row-resize'
+                                    }`}
                                 onMouseDown={handleMouseDown(index)}
-                            />
+                            >
+                                <div className={`absolute z-10 transition-colors bg-transparent hover:bg-blue-500/80
+                                    ${layout === 'horizontal'
+                                    ? 'w-1.5 h-full -left-[3px] top-0 cursor-col-resize'
+                                    : 'h-1.5 w-full -top-[3px] left-0 cursor-row-resize'
+                                    }`}
+                                />
+                            </div>
                         )}
                     </React.Fragment>
                 ))}
