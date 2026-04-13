@@ -298,7 +298,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 // T → toggle toolbar visibility
                 if (e.key.toLowerCase() === 't') {
                     e.preventDefault();
-                    setShowToolbar(prev => !prev);
+                    setShowToolbar(prev => {
+                        if (!prev) setToolbarPos({ x: 0, y: 0 });
+                        return !prev;
+                    });
                     return;
                 }
             }
@@ -744,6 +747,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             setZoom(1);
             setPosition({ x: 0, y: 0 });
             setRotation(0);
+            setToolbarPos({ x: 0, y: 0 });
         }
     };
 
@@ -1384,7 +1388,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     </div>
 
                     {/* Tool Tabs */}
-                    <div className="flex items-center justify-center gap-1 pb-2 border-b border-neutral-800 px-2" onPointerDown={(e) => { if (!e.target.closest('button')) handleToolbarPointerDown(e); }}>
+                    <div className={`flex items-center justify-center gap-1 px-2 ${editTool ? 'pb-2 border-b border-neutral-800' : ''}`} onPointerDown={(e) => { if (!e.target.closest('button')) handleToolbarPointerDown(e); }}>
                         <button
                             onClick={() => switchTool('crop')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'crop' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}

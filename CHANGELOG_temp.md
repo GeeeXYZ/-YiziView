@@ -1,13 +1,9 @@
-✨ Features
-- Add a silent payload to test blockmap differential update system speed
-
 🐛 Fixes
-- Validate zero-delta updater pipeline functionality
+- Fix toolbar not resetting to center position when toggled
+- Remove extraneous bottom border line on collapsed edit toolbar
 
 ---
 
-✨ 🆕 新特性
-- 注入极小测试载荷，用于验证并体验全新基于块图的极速差量更新系统
-
 🐛 修复
-- 确保从 0.9.3 跃迁的后续版本不再进行百兆级别下载
+- 修复工具栏重新激活时未恢复到屏幕中心位置的问题
+- 移除未展开的图片工具栏底部多余的线条
