@@ -76,6 +76,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     const [isDragging, setIsDragging] = useState(false);
     const [isAutoPlay, setIsAutoPlay] = useState(false);
     const [isFav, setIsFav] = useState(false);
+    const containerRef = useRef(null);
 
     // ===== Edit Mode =====
     const [showToolbar, setShowToolbar] = useState(() => {
@@ -537,33 +538,42 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         const imgEl = parent.querySelector('img');
         if (!imgEl) return;
 
-        const rect = imgEl.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0 || !imgEl.naturalWidth) return;
+        // Use client width/height instead of getBoundingClientRect() to ignore CSS transform scale
+        const renderWidth = imgEl.clientWidth;
+        const renderHeight = imgEl.clientHeight;
+        
+        if (renderWidth === 0 || renderHeight === 0 || !imgEl.naturalWidth) return;
 
         const naturalRatio = imgEl.naturalWidth / imgEl.naturalHeight;
-        const renderRatio = rect.width / rect.height;
+        const renderRatio = renderWidth / renderHeight;
 
         let actualWidth, actualHeight;
         if (naturalRatio > renderRatio) {
-            actualWidth = rect.width;
-            actualHeight = rect.width / naturalRatio;
+            actualWidth = renderWidth;
+            actualHeight = renderWidth / naturalRatio;
         } else {
-            actualHeight = rect.height;
-            actualWidth = rect.height * naturalRatio;
+            actualHeight = renderHeight;
+            actualWidth = renderHeight * naturalRatio;
         }
 
-        canvas.width = Math.round(actualWidth);
-        canvas.height = Math.round(actualHeight);
-        canvas.style.width = Math.round(actualWidth) + 'px';
-        canvas.style.height = Math.round(actualHeight) + 'px';
+        const newCanvasW = Math.round(actualWidth);
+        const newCanvasH = Math.round(actualHeight);
 
-        canvas.style.position = 'absolute';
-        canvas.style.left = '50%';
-        canvas.style.top = '50%';
-        canvas.style.transform = 'translate(-50%, -50%)';
+        // Only setup if dimensions actually changed
+        if (canvas.width !== newCanvasW || canvas.height !== newCanvasH) {
+            canvas.width = newCanvasW;
+            canvas.height = newCanvasH;
+            canvas.style.width = newCanvasW + 'px';
+            canvas.style.height = newCanvasH + 'px';
 
-        // Restore history
-        restoreDrawHistory();
+            canvas.style.position = 'absolute';
+            canvas.style.left = '50%';
+            canvas.style.top = '50%';
+            canvas.style.transform = 'translate(-50%, -50%)';
+
+            // Restore history
+            restoreDrawHistory();
+        }
     }, []);
 
     useEffect(() => {
@@ -576,7 +586,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 window.removeEventListener('resize', setupDrawCanvas);
             };
         }
-    }, [isEditing, editTool, setupDrawCanvas, zoom]);
+    }, [isEditing, editTool, setupDrawCanvas]); // Removed zoom dependency
 
     // Restore drawing from history
     const restoreDrawHistory = () => {
@@ -619,14 +629,16 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         const canvas = drawCanvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
+        // Map screen physical coordinates to canvas intrinsic resolution
         return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
+            x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+            y: ((e.clientY - rect.top) / rect.height) * canvas.height
         };
     };
 
     const handleDrawStart = (e) => {
         if (editTool !== 'brush') return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         saveDrawState();
@@ -688,7 +700,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     // ===== Zoom Handler =====
     useEffect(() => {
         const handleWheel = (e) => {
-            if (isEditing && editTool !== 'adjust') return;
+            if (!containerRef.current || !containerRef.current.contains(e.target)) return;
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 const delta = e.deltaY * -0.001;
@@ -697,12 +709,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         };
         window.addEventListener('wheel', handleWheel, { passive: false });
         return () => window.removeEventListener('wheel', handleWheel);
-    }, [isEditing]);
+    }, [isEditing, editTool]);
 
     // ===== Drag Handlers (non-edit mode) =====
     const handleMouseDown = (e) => {
-        if (isEditing && editTool !== 'adjust') return;
-        if (e.button !== 0) return;
+        if (isEditing && (editTool === 'brush' || editTool === 'crop') && e.button !== 1) return; // Middle click to pan in brush/crop mode
+        if ((!isEditing || editTool === 'adjust') && e.button !== 0 && e.button !== 1) return;
+        
         e.preventDefault();
         e.stopPropagation();
         setIsDragging(true);
@@ -710,7 +723,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     };
 
     const handleMouseMove = (e) => {
-        if (!isDragging || (isEditing && editTool !== 'adjust')) return;
+        if (!isDragging) return;
         e.preventDefault();
         setPosition({ x: e.clientX - dragStartRef.current.x, y: e.clientY - dragStartRef.current.y });
     };
@@ -1123,7 +1136,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
     return (
         <div
-            className={`${contained ? 'absolute' : 'fixed'} inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden`}
+            ref={containerRef}
+            className={`image-viewer-container ${contained ? 'absolute' : 'fixed'} inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden`}
             onClick={onClose}
             tabIndex={-1}
         >
@@ -1186,13 +1200,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     />
                 ) : (
                     <div style={{
-                        transform: (!isEditing || editTool === 'adjust') ? `translate(${position.x}px, ${position.y}px) scale(${zoom})` : 'none',
+                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
                         transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                         cursor: isDragging ? 'grabbing' : ((isEditing && editTool !== 'adjust') ? (editTool === 'brush' ? 'crosshair' : hoverCursor) : 'grab'),
                     }}
                         className="pointer-events-auto h-full w-full flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(!isEditing || editTool === 'adjust') ? handleMouseDown : undefined}
+                        onMouseDown={handleMouseDown}
                         onPointerMove={(e) => {
                             if (!isEditing || editTool !== 'crop' || isArbitraryRotating) return;
                             if (e.target.closest('.ReactCrop__crop-selection') || e.target.closest('.ReactCrop__drag-elements') || e.target.closest('.edit-action-bar')) {

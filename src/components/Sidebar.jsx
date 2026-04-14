@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { FileSystem } from '@/managers/FileSystem'
 import { ConfigManager } from '@/managers/ConfigManager'
 import FolderTree from './FolderTree'
-import { ExpandedFoldersProvider } from '../contexts/ExpandedFoldersContext'
+import { ExpandedFoldersProvider, useExpandedFolders } from '../contexts/ExpandedFoldersContext'
 import ConfirmModal from './ui/ConfirmModal'
 import {
     File,
@@ -14,12 +14,12 @@ import {
     X,
     Grid,
     Filter,
-    Trash2,
     Search,
     Plus,
     Minus,
     Heart,
-    GripVertical
+    GripVertical,
+    FolderMinus
 } from 'lucide-react';
 
 // Helper to get basename (simple version since we don't have node path in renderer directly standardly unless verified, 
@@ -30,6 +30,22 @@ const getBasename = (path) => {
     return path.split(separator).pop();
 };
 
+const FoldersTitleBar = () => {
+    const { collapseAll } = useExpandedFolders() || {};
+    return (
+        <div className="mb-2 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between group items-center">
+            <span className="flex items-center gap-1"><FolderOpen size={12} className="text-yellow-500" /> Folders</span>
+            <button 
+                onClick={() => collapseAll && collapseAll()}
+                className="p-0.5 hover:bg-neutral-700 rounded transition-all text-gray-400 hover:text-white"
+                title="Collapse All Folders"
+            >
+                <FolderMinus size={14} />
+            </button>
+        </div>
+    );
+};
+
 const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, locateTrigger }) => {
     // State
     const [tags, setTags] = useState([]);
@@ -38,6 +54,8 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
     const [filterMode, setFilterMode] = useState('union'); // 'union' | 'intersection'
     const [tagSearch, setTagSearch] = useState('');
     const [folderSearch, setFolderSearch] = useState('');
+    const [searchResults, setSearchResults] = useState(null);
+    const [isSearchingFolders, setIsSearchingFolders] = useState(false);
     const [editingTag, setEditingTag] = useState(null); // { name, newName }
     const [inputModal, setInputModal] = useState(null); // { type: 'rename'|'create', target, value }
     const [dragOverTag, setDragOverTag] = useState(null);
@@ -45,6 +63,34 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
 
     const sidebarRef = React.useRef(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    useEffect(() => {
+        if (!folderSearch.trim()) {
+            setSearchResults(null);
+            setIsSearchingFolders(false);
+            return;
+        }
+
+        setIsSearchingFolders(true);
+        const timer = setTimeout(async () => {
+            try {
+                // Ignore search if we don't have favorites to search within
+                if (favorites.length === 0) {
+                    setSearchResults([]);
+                    return;
+                }
+                const results = await FileSystem.searchFolders(favorites, folderSearch.trim());
+                setSearchResults(results);
+            } catch (e) {
+                console.error("Search failed", e);
+                setSearchResults([]);
+            } finally {
+                setIsSearchingFolders(false);
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [folderSearch, favorites]);
 
     useEffect(() => {
         loadFavorites();
@@ -307,12 +353,8 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                         className="overflow-y-auto px-2 scrollbar-thin scrollbar-thumb-neutral-700 shrink transition-all duration-300 min-h-0"
                         style={{ flex: '0 1 auto', maxHeight: '60%' }}
                     >
-                        <div className="mt-4 mb-2 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between group items-center">
-                            <span className="flex items-center gap-1"><Star size={12} className="text-yellow-500" /> Quick Access</span>
-                        </div>
-
                         {/* Folder Search Input */}
-                        <div className="relative mb-2">
+                        <div className="relative mt-4 mb-3">
                             <input
                                 type="text"
                                 placeholder="Search folders..."
@@ -323,92 +365,124 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
                         </div>
 
-                        <div className="space-y-0.5 pb-2">
-                            {/* Always render all favorites and let FolderTree handle the searching/highlighting */}
-                            {favorites.map((path, index) => (
-                                <div 
-                                    key={path} 
-                                    className="group flex items-stretch border-t-2 transition-colors duration-200"
-                                    style={{ borderColor: dragOverFavIndex === index ? '#3b82f6' : 'transparent' }}
-                                    onDragOver={(e) => {
-                                        if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            e.dataTransfer.dropEffect = 'move';
-                                            setDragOverFavIndex(index);
-                                        }
-                                    }}
-                                    onDragLeave={(e) => {
-                                        if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
-                                            setDragOverFavIndex(null);
-                                        }
-                                    }}
-                                    onDrop={async (e) => {
-                                        if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            setDragOverFavIndex(null);
-                                            const srcIdx = parseInt(e.dataTransfer.getData('application/x-yizi-fav'), 10);
-                                            if (!isNaN(srcIdx) && srcIdx !== index) {
-                                                const newFavs = [...favorites];
-                                                const [moved] = newFavs.splice(srcIdx, 1);
-                                                newFavs.splice(index, 0, moved);
-                                                setFavorites(newFavs);
-                                                await ConfigManager.saveFavorites(newFavs);
-                                                window.dispatchEvent(new CustomEvent('favorites-updated', { detail: newFavs }));
-                                            }
-                                        }
-                                    }}
-                                >
-                                    {/* Drag Handle */}
-                                    <div 
-                                        className="w-4 shrink-0 -ml-2 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-neutral-700/50 cursor-grab z-10 transition-opacity"
-                                        draggable="true"
-                                        onDragStart={(e) => {
-                                            e.dataTransfer.effectAllowed = 'move';
-                                            e.dataTransfer.setData('application/x-yizi-fav', index.toString());
-                                        }}
-                                        onDragEnd={() => setDragOverFavIndex(null)}
-                                        title="Drag to reorder"
-                                    >
-                                        <GripVertical size={12} className="text-gray-500" />
-                                    </div>
+                        <FoldersTitleBar />
 
-                                    {/* Folder Content */}
-                                    <div className="flex-1 min-w-0 relative -ml-2">
-                                        <FolderTree
-                                            name={getBasename(path)}
-                                            path={path}
-                                            onSelect={(p) => {
-                                                setSelectedTags(new Set());
-                                                onFolderSelect(p);
+                        <div className="space-y-0.5 pb-2">
+                            {searchResults !== null ? (
+                                // Search Results View
+                                <div className="mt-2">
+                                    {isSearchingFolders ? (
+                                        <div className="px-4 py-4 text-center text-gray-500 text-xs italic">
+                                            Searching...
+                                        </div>
+                                    ) : searchResults.length > 0 ? (
+                                        searchResults.map((result) => (
+                                            <div 
+                                                key={result.path}
+                                                className={`flex items-center py-1.5 px-3 cursor-pointer transition-all text-sm group
+                                                    ${currentPath === result.path ? 'bg-blue-600/30 text-blue-300 border-l-[3px] border-blue-500' : 'text-gray-300 hover:bg-neutral-800 border-l-[3px] border-transparent'}`}
+                                                onClick={() => {
+                                                    setSelectedTags(new Set());
+                                                    onFolderSelect(result.path);
+                                                }}
+                                            >
+                                                <FolderOpen size={14} className={`mr-2 shrink-0 ${currentPath === result.path ? 'text-blue-400' : 'text-yellow-500/80 group-hover:text-yellow-400'}`} />
+                                                <div className="flex-1 min-w-0" title={result.path}>
+                                                    <div className="truncate text-[13px]">{result.name}</div>
+                                                    <div className="truncate text-[9.5px] text-gray-500 mt-0.5">{result.path}</div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="px-4 py-4 text-center text-gray-500 text-xs italic">
+                                            No folders match "{folderSearch}"
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                // Original Favorites View
+                                <>
+                                    {favorites.map((path, index) => (
+                                        <div 
+                                            key={path} 
+                                            className="group flex items-stretch border-t-2 transition-colors duration-200"
+                                            style={{ borderColor: dragOverFavIndex === index ? '#3b82f6' : 'transparent' }}
+                                            onDragOver={(e) => {
+                                                if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    e.dataTransfer.dropEffect = 'move';
+                                                    setDragOverFavIndex(index);
+                                                }
                                             }}
-                                            currentPath={currentPath}
-                                            refreshTrigger={refreshTrigger}
-                                            searchQuery={folderSearch}
-                                            setConfirmModal={setConfirmModal}
-                                            locatePath={locateTrigger > 0 ? currentPath : null}
-                                            locateTrigger={locateTrigger}
-                                        />
-                                        <button
-                                            onClick={(e) => handleRemoveFavorite(e, path)}
-                                            className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 p-0.5 rounded transition-opacity bg-neutral-800/80"
-                                            title="Remove from Quick Access"
+                                            onDragLeave={(e) => {
+                                                if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
+                                                    setDragOverFavIndex(null);
+                                                }
+                                            }}
+                                            onDrop={async (e) => {
+                                                if (e.dataTransfer.types.includes('application/x-yizi-fav')) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    setDragOverFavIndex(null);
+                                                    const srcIdx = parseInt(e.dataTransfer.getData('application/x-yizi-fav'), 10);
+                                                    if (!isNaN(srcIdx) && srcIdx !== index) {
+                                                        const newFavs = [...favorites];
+                                                        const [moved] = newFavs.splice(srcIdx, 1);
+                                                        newFavs.splice(index, 0, moved);
+                                                        setFavorites(newFavs);
+                                                        await ConfigManager.saveFavorites(newFavs);
+                                                        window.dispatchEvent(new CustomEvent('favorites-updated', { detail: newFavs }));
+                                                    }
+                                                }
+                                            }}
                                         >
-                                            <X size={12} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                            {filteredFavorites.length === 0 && folderSearch && (
-                                <div className="px-4 py-4 text-center text-gray-500 text-xs italic">
-                                    No folders match "{folderSearch}"
-                                </div>
-                            )}
-                            {favorites.length === 0 && !folderSearch && (
-                                <div className="px-4 py-8 text-center text-gray-600 text-sm italic">
-                                    No folders pinned
-                                </div>
+                                            {/* Drag Handle */}
+                                            <div 
+                                                className="w-4 shrink-0 -ml-2 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-neutral-700/50 cursor-grab z-10 transition-opacity"
+                                                draggable="true"
+                                                onDragStart={(e) => {
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                    e.dataTransfer.setData('application/x-yizi-fav', index.toString());
+                                                }}
+                                                onDragEnd={() => setDragOverFavIndex(null)}
+                                                title="Drag to reorder"
+                                            >
+                                                <GripVertical size={12} className="text-gray-500" />
+                                            </div>
+
+                                            {/* Folder Content */}
+                                            <div className="flex-1 min-w-0 relative -ml-2">
+                                                <FolderTree
+                                                    name={getBasename(path)}
+                                                    path={path}
+                                                    onSelect={(p) => {
+                                                        setSelectedTags(new Set());
+                                                        onFolderSelect(p);
+                                                    }}
+                                                    currentPath={currentPath}
+                                                    refreshTrigger={refreshTrigger}
+                                                    searchQuery="" // No more deep search highlighting inside FolderTree
+                                                    setConfirmModal={setConfirmModal}
+                                                    locatePath={locateTrigger > 0 ? currentPath : null}
+                                                    locateTrigger={locateTrigger}
+                                                />
+                                                <button
+                                                    onClick={(e) => handleRemoveFavorite(e, path)}
+                                                    className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 p-0.5 rounded transition-opacity bg-neutral-800/80"
+                                                    title="Remove from Quick Access"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {favorites.length === 0 && (
+                                        <div className="px-4 py-8 text-center text-gray-600 text-sm italic">
+                                            No folders pinned
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

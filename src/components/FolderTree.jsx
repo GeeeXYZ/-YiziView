@@ -149,19 +149,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         }
     };
 
-    // Auto-expand when searching
-    useEffect(() => {
-        const MAX_SEARCH_DEPTH = 10;
-        if (searchQuery && level < MAX_SEARCH_DEPTH) {
-            // Auto-expand if not expanded
-            if (!isExpanded) setIsExpanded(true);
-
-            // Only load if not loaded yet (avoids refreshing already loaded folders)
-            if (!hasLoaded) {
-                refreshSubfolders();
-            }
-        }
-    }, [searchQuery]);
+    // Auto-expand when searching removed to prevent tree bloat. Search is now handled via flat list in Sidebar.
 
     const lastLocateTriggerRef = React.useRef(0);
 
@@ -467,17 +455,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
 
     const isSelected = currentPath === path;
     const paddingLeft = `${level * 12 + 8}px`;
-    const isMatchingSearch = searchQuery && name.toLowerCase().includes(searchQuery.toLowerCase());
-
-    // Scroll into view if matching
     const itemRef = React.useRef(null);
-    useEffect(() => {
-        if (isMatchingSearch && itemRef.current) {
-            setTimeout(() => {
-                itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-        }
-    }, [isMatchingSearch]);
 
     return (
         <div className="select-none relative">
@@ -486,7 +464,7 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
                 ref={itemRef}
                 tabIndex={0}
                 className={`flex items-center py-1 pr-2 cursor-pointer transition-all text-sm border border-transparent outline-none ${isSelected ? 'bg-blue-600/30 text-blue-300 focus:bg-blue-600/40' : 'hover:bg-neutral-800 text-gray-300 focus:bg-neutral-800'
-                    } ${isDragOver ? '!border-blue-500 !bg-blue-900/40' : ''} ${isCut ? 'opacity-40 grayscale-[0.5]' : ''} ${isMatchingSearch ? '!bg-yellow-900/30 !text-yellow-200' : ''} ${searchQuery && !isMatchingSearch ? 'opacity-40 hover:opacity-100' : ''}`}
+                    } ${isDragOver ? '!border-blue-500 !bg-blue-900/40' : ''} ${isCut ? 'opacity-40 grayscale-[0.5]' : ''}`}
                 style={{ paddingLeft }}
                 onClick={handleSelect}
                 onKeyDown={handleKeyDown}

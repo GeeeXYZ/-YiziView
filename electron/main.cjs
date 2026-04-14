@@ -737,6 +737,53 @@ ipcMain.handle('check-has-subdirectories', async (event, folderPath) => {
   return await hasSubdirectories(folderPath);
 });
 
+ipcMain.handle('search-folders', async (event, { roots, query }) => {
+  const ignoredFolders = new Set(['node_modules', '__pycache__', '$RECYCLE.BIN', 'System Volume Information', '.git', '.vs', '.idea', '.vscode']);
+  const results = [];
+  const queryLower = query.toLowerCase();
+  
+  const searchDir = async (dirPath, currentDepth) => {
+    if (currentDepth > 10) return;
+    try {
+      const dirents = await fs.readdir(dirPath, { withFileTypes: true });
+      for (const dirent of dirents) {
+        if (dirent.isDirectory() && !dirent.name.startsWith('.') && !ignoredFolders.has(dirent.name)) {
+          const fullPath = path.join(dirPath, dirent.name);
+          if (dirent.name.toLowerCase().includes(queryLower)) {
+            // Found a match
+            results.push({ name: dirent.name, path: fullPath, hasChildren: null });
+          }
+          await searchDir(fullPath, currentDepth + 1);
+        }
+      }
+    } catch (e) {
+      // ignore access errors
+    }
+  };
+
+  await Promise.all(roots.map(root => searchDir(root, 0)));
+  
+  // Also check if the roots themselves match
+  for (const root of roots) {
+    const rootName = path.basename(root);
+    if (rootName.toLowerCase().includes(queryLower)) {
+      results.push({ name: rootName, path: root, hasChildren: null });
+    }
+  }
+
+  const uniqueResults = [];
+  const seenPaths = new Set();
+  for (const r of results) {
+    if (!seenPaths.has(r.path)) {
+      seenPaths.add(r.path);
+      uniqueResults.push(r);
+    }
+  }
+  
+  uniqueResults.sort((a, b) => a.name.localeCompare(b.name));
+  return uniqueResults;
+});
+
 const favoritesPath = path.join(app.getPath('userData'), 'folders.json');
 
 ipcMain.handle('get-favorites', async () => {
@@ -947,6 +994,13 @@ ipcMain.handle('set-folder-expanded', async (event, { path: folderPath, expanded
   } else {
     expandedFoldersCache.delete(folderPath);
   }
+  saveExpandedFolders();
+  return true;
+});
+
+ipcMain.handle('collapse-all-expanded-folders', async () => {
+  await loadExpandedFolders();
+  expandedFoldersCache.clear();
   saveExpandedFolders();
   return true;
 });

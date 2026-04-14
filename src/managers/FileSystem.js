@@ -25,12 +25,68 @@ export const FileSystem = {
     },
 
     /**
+     * Internal metadata sync (Colors, Favorites) on file operations
+     */
+    _syncMetadata: (oldPath, newPath, action) => {
+        try {
+            // 1. Image Colors
+            const colors = JSON.parse(localStorage.getItem('yizi_image_colors') || '{}');
+            let colorsChanged = false;
+            if (action === 'delete') {
+                if (colors[oldPath]) {
+                    delete colors[oldPath];
+                    colorsChanged = true;
+                }
+            } else if (action === 'move') {
+                if (colors[oldPath]) {
+                    colors[newPath] = colors[oldPath];
+                    delete colors[oldPath];
+                    colorsChanged = true;
+                }
+            }
+            if (colorsChanged) {
+                localStorage.setItem('yizi_image_colors', JSON.stringify(colors));
+                window.dispatchEvent(new Event('image-colors-updated'));
+            }
+
+            // 2. Favorites
+            const favs = JSON.parse(localStorage.getItem('yizi_fav_images') || '[]');
+            const favSet = new Set(favs);
+            let favsChanged = false;
+            
+            if (action === 'delete') {
+                if (favSet.has(oldPath)) {
+                    favSet.delete(oldPath);
+                    favsChanged = true;
+                }
+            } else if (action === 'move') {
+                if (favSet.has(oldPath)) {
+                    favSet.delete(oldPath);
+                    favSet.add(newPath);
+                    favsChanged = true;
+                }
+            }
+            
+            if (favsChanged) {
+                localStorage.setItem('yizi_fav_images', JSON.stringify([...favSet]));
+                window.dispatchEvent(new Event('fav-images-updated'));
+            }
+        } catch (e) {
+            console.error('Failed to sync metadata:', e);
+        }
+    },
+
+    /**
      * Delete a file to trash.
      * @param {string} filePath 
      * @returns {Promise<boolean>}
      */
     deleteFile: async (filePath) => {
-        return await window.electron.trashFile(filePath);
+        const result = await window.electron.trashFile(filePath);
+        if (result !== false) {
+            FileSystem._syncMetadata(filePath, null, 'delete');
+        }
+        return result;
     },
 
     /**
@@ -72,6 +128,16 @@ export const FileSystem = {
     },
 
     /**
+     * Search recursively in the provided root directories for folders matching query
+     * @param {Array<string>} roots 
+     * @param {string} query 
+     * @returns {Promise<Array>}
+     */
+    searchFolders: async (roots, query) => {
+        return await window.electron.searchFolders(roots, query);
+    },
+
+    /**
      * Get favorite folders.
      * @returns {Promise<Array>}
      */
@@ -103,11 +169,29 @@ export const FileSystem = {
     },
 
     renameItem: async (oldPath, newName) => {
-        return await window.electron.renameItem(oldPath, newName);
+        const result = await window.electron.renameItem(oldPath, newName);
+        if (result !== false) {
+            const sep = oldPath.lastIndexOf('\\') !== -1 ? '\\' : '/';
+            const oldDir = oldPath.substring(0, oldPath.lastIndexOf(sep));
+            const newPath = oldDir + sep + newName;
+            FileSystem._syncMetadata(oldPath, newPath, 'move');
+        }
+        return result;
     },
 
     moveItems: async (sourcePaths, targetPath) => {
-        return await window.electron.moveItems(sourcePaths, targetPath);
+        const result = await window.electron.moveItems(sourcePaths, targetPath);
+        // We only attempt to sync metadata if there wasn't a total failure
+        if (result !== false && Array.isArray(sourcePaths)) {
+            const targetSep = targetPath.indexOf('\\') !== -1 ? '\\' : '/';
+            sourcePaths.forEach(oldPath => {
+                const sep = oldPath.lastIndexOf('\\') !== -1 ? '\\' : '/';
+                const filename = oldPath.substring(oldPath.lastIndexOf(sep) + 1);
+                const newPath = targetPath.endsWith(targetSep) ? targetPath + filename : targetPath + targetSep + filename;
+                FileSystem._syncMetadata(oldPath, newPath, 'move');
+            });
+        }
+        return result;
     },
 
     // Internal Clipboard State

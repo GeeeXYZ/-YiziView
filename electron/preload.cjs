@@ -35,12 +35,14 @@ contextBridge.exposeInMainWorld('electron', {
     // Folder Tree / Favorites
     getSubdirectories: (path) => ipcRenderer.invoke('get-subdirectories', path),
     checkHasSubdirectories: (path) => ipcRenderer.invoke('check-has-subdirectories', path),
+    searchFolders: (roots, query) => ipcRenderer.invoke('search-folders', { roots, query }),
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
     saveFavorites: (favorites) => ipcRenderer.invoke('save-favorites', favorites),
 
     // Expanded State
     getExpandedFolders: () => ipcRenderer.invoke('get-expanded-folders'),
     setFolderExpanded: (path, expanded) => ipcRenderer.invoke('set-folder-expanded', { path, expanded }),
+    collapseAllExpandedFolders: () => ipcRenderer.invoke('collapse-all-expanded-folders'),
 
     // Session
     getSession: () => ipcRenderer.invoke('get-session'),

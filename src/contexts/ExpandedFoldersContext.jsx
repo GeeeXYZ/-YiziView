@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const ExpandedFoldersContext = createContext({
     expandedSet: new Set(),
-    setFolderExpanded: (path, expanded) => { }
+    setFolderExpanded: (path, expanded) => { },
+    collapseAll: () => { }
 });
 
 export const useExpandedFolders = () => useContext(ExpandedFoldersContext);
@@ -34,10 +35,15 @@ export const ExpandedFoldersProvider = ({ children }) => {
         window.electron.setFolderExpanded(path, expanded);
     };
 
+    const collapseAll = () => {
+        setExpandedSet(new Set());
+        window.electron.collapseAllExpandedFolders();
+    };
+
     if (!isLoaded) return null; // Or a loading spinner?
 
     return (
-        <ExpandedFoldersContext.Provider value={{ expandedSet, setFolderExpanded }}>
+        <ExpandedFoldersContext.Provider value={{ expandedSet, setFolderExpanded, collapseAll }}>
             {children}
         </ExpandedFoldersContext.Provider>
     );
