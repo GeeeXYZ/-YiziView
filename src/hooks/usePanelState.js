@@ -13,10 +13,16 @@ export const usePanelState = (panelId) => {
     const [lastSelectedIndex, setLastSelectedIndex] = useState(null);
     const [viewingIndex, setViewingIndex] = useState(null);
     const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem(`yizi_grid_aspect_ratio_${panelId}`) || '1:1');
+    const [isRecursive, setIsRecursive] = useState(() => localStorage.getItem(`yizi_panel_recursive_${panelId}`) === 'true');
+    const [history, setHistory] = useState([]);
 
     useEffect(() => {
         localStorage.setItem(`yizi_grid_aspect_ratio_${panelId}`, aspectRatio);
     }, [aspectRatio, panelId]);
+
+    useEffect(() => {
+        localStorage.setItem(`yizi_panel_recursive_${panelId}`, isRecursive);
+    }, [isRecursive, panelId]);
 
     const [sortConfig, setSortConfig] = useState({ type: 'date', direction: 'desc' });
 
@@ -24,23 +30,71 @@ export const usePanelState = (panelId) => {
     stateRef.current = { images, viewingIndex, selectedIndices };
 
     // Help application sort
-    const applySort = useCallback((imgs, config = sortConfig) => {
+    const applySort = useCallback((imgs, config = sortConfig, currentRecursive = isRecursive) => {
         const { type, direction } = config;
-        return [...imgs].sort((a, b) => {
-            if (type === 'name') {
-                const nameA = a.name.toLowerCase();
-                const nameB = b.name.toLowerCase();
-                return direction === 'asc'
-                    ? nameA.localeCompare(nameB)
-                    : nameB.localeCompare(nameA);
-            } else if (type === 'date') {
-                return direction === 'asc'
-                    ? a.mtimeMs - b.mtimeMs
-                    : b.mtimeMs - a.mtimeMs;
+        let processedImages = imgs.filter(img => !img.isHeaderCard);
+
+        if (currentRecursive) {
+            // First pass: Group by subDir
+            processedImages.sort((a, b) => {
+                const subA = a.subDir || '';
+                const subB = b.subDir || '';
+                if (subA !== subB) {
+                    if (subA !== '' && subB === '') return -1;
+                    if (subA === '' && subB !== '') return 1;
+                    return subA.localeCompare(subB);
+                }
+                
+                // Secondary pass: Original Sort Logic
+                if (type === 'name') {
+                    const nameA = a.name.toLowerCase();
+                    const nameB = b.name.toLowerCase();
+                    return direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+                } else if (type === 'date') {
+                    return direction === 'asc' ? a.mtimeMs - b.mtimeMs : b.mtimeMs - a.mtimeMs;
+                }
+                return 0;
+            });
+
+            // Second pass: Inject Header Dummy objects
+            const finalImages = [];
+            let currentGroup = null;
+
+            for (const img of processedImages) {
+                const group = img.subDir || '';
+                if (group !== currentGroup) {
+                    currentGroup = group;
+                    // Only inject header for ACTUAL subdirectories
+                    if (group !== '') {
+                        finalImages.push({
+                            path: `__header__${group}`, // Unique path id for key
+                            isHeaderCard: true,
+                            subDir: group,
+                            name: group.split('/').pop() || group
+                        });
+                    }
+                }
+                finalImages.push(img);
             }
-            return 0;
-        });
-    }, [sortConfig]);
+            return finalImages;
+        } else {
+            // Original sorting
+            return processedImages.sort((a, b) => {
+                if (type === 'name') {
+                    const nameA = a.name.toLowerCase();
+                    const nameB = b.name.toLowerCase();
+                    return direction === 'asc'
+                        ? nameA.localeCompare(nameB)
+                        : nameB.localeCompare(nameA);
+                } else if (type === 'date') {
+                    return direction === 'asc'
+                        ? a.mtimeMs - b.mtimeMs
+                        : b.mtimeMs - a.mtimeMs;
+                }
+                return 0;
+            });
+        }
+    }, [sortConfig, isRecursive]);
 
     // Folder change listener (Auto-refresh)
     useEffect(() => {
@@ -54,7 +108,7 @@ export const usePanelState = (panelId) => {
             if (normalize(changedDir) === normalize(currentFolder)) {
                 if (debounceTimer) clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(async () => {
-                    const updatedImages = await FileSystem.scanFolder(currentFolder, panelId);
+                    const updatedImages = await FileSystem.scanFolder(currentFolder, panelId, isRecursive);
                     const sortedImages = applySort(updatedImages);
                     
                     const state = stateRef.current;
@@ -105,7 +159,10 @@ export const usePanelState = (panelId) => {
     }, [currentFolder, panelId, applySort]); // Fixed dependencies
 
     // Handle folder selection
-    const handleFolderSelect = async (folderPath) => {
+    const handleFolderSelect = async (folderPath, forcedRecursive = isRecursive, isBackNavigation = false) => {
+        if (!isBackNavigation && currentFolder && folderPath !== currentFolder) {
+            setHistory(prev => [...prev, currentFolder]);
+        }
         setCurrentFolder(folderPath);
         setLoading(true);
         let imgs = [];
@@ -127,15 +184,30 @@ export const usePanelState = (panelId) => {
                 };
             });
         } else {
-            imgs = await FileSystem.scanFolder(folderPath, panelId);
+            imgs = await FileSystem.scanFolder(folderPath, panelId, forcedRecursive);
         }
 
-        setImages(applySort(imgs));
+        setImages(applySort(imgs, sortConfig, forcedRecursive));
         setLoading(false);
         setSelectedIndices(new Set());
         setLastSelectedIndex(null);
         setViewingIndex(null);
     };
+
+    const handleBack = useCallback(() => {
+        if (history.length > 0) {
+            const prevFolder = history[history.length - 1];
+            setHistory(prev => prev.slice(0, -1));
+            handleFolderSelect(prevFolder, isRecursive, true);
+        }
+    }, [history, isRecursive]);
+
+    // Trigger re-scan when isRecursive toggles
+    useEffect(() => {
+        if (currentFolder && !currentFolder.startsWith('Tag:') && currentFolder !== 'Favorites') {
+            handleFolderSelect(currentFolder, isRecursive);
+        }
+    }, [isRecursive]);
 
     // Handle tag selection
     const handleTagSelect = async (tags, mode = 'union') => {
@@ -200,18 +272,24 @@ export const usePanelState = (panelId) => {
             }
 
             for (let i = start; i <= end; i++) {
-                newSelection.add(i);
+                if (images[i] && !images[i].isHeaderCard) {
+                    newSelection.add(i);
+                }
             }
         } else if (e.metaKey || e.ctrlKey) {
             if (newSelection.has(index)) {
                 newSelection.delete(index);
             } else {
-                newSelection.add(index);
+                if (images[index] && !images[index].isHeaderCard) newSelection.add(index);
             }
-            setLastSelectedIndex(index);
+            if (images[index] && !images[index].isHeaderCard) setLastSelectedIndex(index);
         } else {
-            newSelection = new Set([index]);
-            setLastSelectedIndex(index);
+            if (images[index] && !images[index].isHeaderCard) {
+                newSelection = new Set([index]);
+                setLastSelectedIndex(index);
+            } else {
+                newSelection = new Set();
+            }
         }
 
         setSelectedIndices(newSelection);
@@ -237,6 +315,7 @@ export const usePanelState = (panelId) => {
         viewingIndex,
         aspectRatio,
         sortConfig,
+        isRecursive,
 
         // Setters
         setImages,
@@ -245,6 +324,10 @@ export const usePanelState = (panelId) => {
         setViewingIndex,
         setAspectRatio,
         setCurrentFolder,
+        setIsRecursive,
+        history,
+        canGoBack: history.length > 0,
+        handleBack,
 
         // Handlers
         handleFolderSelect,

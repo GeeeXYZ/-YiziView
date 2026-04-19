@@ -14,10 +14,10 @@ export const FileSystem = {
     /**
      * Scan a folder for images.
      */
-    scanFolder: async (folderPath, panelId) => {
+    scanFolder: async (folderPath, panelId, isRecursive = false) => {
         if (!folderPath) return [];
         try {
-            return await window.electron.scanFolder(folderPath, panelId);
+            return await window.electron.scanFolder(folderPath, panelId, isRecursive);
         } catch (e) {
             console.error(e);
             return [];

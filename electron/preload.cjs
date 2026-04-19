@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('electron', {
     ping: () => ipcRenderer.invoke('ping'),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
-    scanFolder: (path, panelId) => ipcRenderer.invoke('scan-folder', { path, panelId }),
+    scanFolder: (path, panelId, isRecursive = false) => ipcRenderer.invoke('scan-folder', { path, panelId, isRecursive }),
     trashFile: (path) => ipcRenderer.invoke('trash-file', path),
     startDrag: (path) => ipcRenderer.send('start-drag', path),
     // File System
@@ -61,9 +61,21 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Tag System
     getTags: () => ipcRenderer.invoke('get-tags'),
-    createTag: (tagName) => ipcRenderer.invoke('create-tag', tagName),
-    renameTag: (oldName, newName) => ipcRenderer.invoke('rename-tag', { oldName, newName }),
-    deleteTag: (tagName) => ipcRenderer.invoke('delete-tag', tagName),
+    createTag: async (tagName) => {
+        const newTags = await ipcRenderer.invoke('create-tag', tagName);
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
+    },
+    renameTag: async (oldName, newName) => {
+        const newTags = await ipcRenderer.invoke('rename-tag', { oldName, newName });
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
+    },
+    deleteTag: async (tagName) => {
+        const newTags = await ipcRenderer.invoke('delete-tag', tagName);
+        window.dispatchEvent(new CustomEvent('tags-updated', { detail: newTags }));
+        return newTags;
+    },
     addFilesToTag: (files, tagName) => ipcRenderer.invoke('add-files-to-tag', { files, tagName }),
     removeFilesFromTag: (files, tagName) => ipcRenderer.invoke('remove-files-from-tag', { files, tagName }),
     getFilesByTag: (args) => ipcRenderer.invoke('get-files-by-tag', args),
@@ -74,6 +86,7 @@ contextBridge.exposeInMainWorld('electron', {
     saveEditedImage: (imagePath, dataUrl, overwrite) => ipcRenderer.invoke('save-edited-image', { imagePath, dataUrl, overwrite }),
 
     // Settings
+    setNetworkMode: (mode) => ipcRenderer.invoke('set-network-mode', mode),
     clearThumbnailCache: () => ipcRenderer.invoke('clear-thumbnail-cache'),
     exportSettings: (frontendSettings) => ipcRenderer.invoke('export-settings', frontendSettings),
     importSettings: () => ipcRenderer.invoke('import-settings'),
@@ -107,7 +120,19 @@ contextBridge.exposeInMainWorld('electron', {
         getAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
         openPluginDir: () => ipcRenderer.send('plugin-open-dir'),
         togglePlugin: (id, enabled) => ipcRenderer.invoke('plugin-toggle', { id, enabled }),
-        deletePlugin: (id) => ipcRenderer.invoke('plugin-delete', id)
+        deletePlugin: (id) => ipcRenderer.invoke('plugin-delete', id),
+        openWxLoginWindow: (payload) => ipcRenderer.invoke('plugin-open-wx-login', payload),
+        onWxLoginClosed: (callback) => {
+            const subscription = () => callback();
+            ipcRenderer.on('wx-login-closed', subscription);
+            return () => ipcRenderer.removeListener('wx-login-closed', subscription);
+        },
+        onWxLoginPhone: (callback) => {
+            const subscription = (_, phone) => callback(phone);
+            ipcRenderer.on('wx-login-phone', subscription);
+            return () => ipcRenderer.removeListener('wx-login-phone', subscription);
+        },
+        downloadPluginAsset: (url, outputPath) => ipcRenderer.invoke('plugin-download-asset', { url, outputPath })
     },
     onPluginChanged: (callback) => {
         const subscription = () => callback();

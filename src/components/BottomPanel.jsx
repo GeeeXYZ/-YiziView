@@ -13,6 +13,22 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
     const [loadingPrompts, setLoadingPrompts] = useState(false);
     const [showPrompts, setShowPrompts] = useState(false);
 
+    // Resolution State
+    const [resolution, setResolution] = useState(null);
+
+    useEffect(() => {
+        setResolution(null);
+        if (selectedIndices && selectedIndices.size === 1) {
+            const index = Array.from(selectedIndices)[0];
+            const image = images[index];
+            if (image && image.url) {
+                const img = new Image();
+                img.onload = () => setResolution(`${img.naturalWidth} × ${img.naturalHeight}`);
+                img.src = image.url;
+            }
+        }
+    }, [selectedIndices, images]);
+
     // Color Tag State
     const [showColorTag, setShowColorTag] = useState(() => localStorage.getItem('yizi_show_color_tag') === 'true');
 
@@ -348,16 +364,17 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                 {hasSelection && (
                     <>
                         {!isViewing && (
-                            <div className="text-gray-400 text-xs font-medium border-r border-neutral-700 pr-4">
-                                {selectedIndices.size} Selected
+                            <div className={`text-gray-400 text-xs font-medium flex items-center gap-2 ${(loadingTags || commonTags.length > 0) ? 'border-r border-neutral-700 pr-4' : ''}`}>
+                                <span>{selectedIndices.size} Selected</span>
+                                {selectedIndices.size === 1 && resolution && (
+                                    <span className="text-[10px] text-gray-500 bg-neutral-800 px-1.5 py-0.5 rounded shadow-inner tracking-wider font-mono">{resolution}</span>
+                                )}
                             </div>
                         )}
 
                         {loadingTags ? (
                             <div className="text-gray-500 text-xs text-center min-w-[60px]">Loading...</div>
-                        ) : commonTags.length === 0 ? (
-                            <div className="text-gray-500 text-xs italic text-center min-w-[60px]">No tags</div>
-                        ) : (
+                        ) : commonTags.length > 0 && (
                             <div className="flex items-center gap-2">
                                 {commonTags.slice(0, 5).map(tag => (
                                     <div key={tag} className="flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-gray-300 text-xs px-2 py-1 rounded-full transition-colors whitespace-nowrap">
@@ -380,7 +397,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                 )}
 
                 {!hasSelection && !isViewing && (
-                    <div className="text-gray-500 text-xs italic border-r border-neutral-700 pr-4">
+                    <div className="text-gray-500 text-xs italic">
                         No selection
                     </div>
                 )}
@@ -468,8 +485,15 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                     </div>
                 ) : (
                     selectedIndices.size === 1 && images[Array.from(selectedIndices)[0]] && (
-                        <div className="text-gray-300 text-xs font-medium border-l border-neutral-700 pl-4 max-w-[250px] truncate">
-                            {images[Array.from(selectedIndices)[0]].name}
+                        <div className="flex items-center gap-3 border-l border-neutral-700 pl-4 max-w-[300px]">
+                            <div className="text-gray-300 text-xs font-medium truncate">
+                                {images[Array.from(selectedIndices)[0]].name}
+                            </div>
+                            {resolution && (
+                                <span className="text-[10px] text-gray-500 bg-neutral-800 px-1.5 py-0.5 rounded shadow-inner tracking-wider shrink-0 font-mono">
+                                    {resolution}
+                                </span>
+                            )}
                         </div>
                     )
                 )}

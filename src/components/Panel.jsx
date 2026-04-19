@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Crosshair } from 'lucide-react';
+import { Copy, Check, Crosshair, Layers, ChevronLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ImageGrid from './ImageGrid';
 import ImageViewer from './ImageViewer';
@@ -39,6 +39,7 @@ const Panel = ({
 }) => {
     const [locateTrigger, setLocateTrigger] = React.useState(0);
     const [isPanelMaximized, setIsPanelMaximized] = React.useState(false);
+    const [remoteImage, setRemoteImage] = React.useState(null);
 
     const {
         currentFolder,
@@ -186,6 +187,30 @@ const Panel = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isActive, selectedIndices, viewingIndex]);
 
+    // Cross-panel protocol: Allow plugins to trigger the "Maximize in Panel" native feature remotely
+    React.useEffect(() => {
+        const handleRemoteMaximize = (e) => {
+            const { path, url, label } = e.detail || {};
+            if (url) {
+                // Support viewing remote images (e.g. from cloud orders in AI Studio)
+                setRemoteImage({ path: url, url: url, name: label || 'Remote Image' });
+                setIsPanelMaximized(true);
+                return;
+            }
+            if (!path || !images) return;
+            const index = images.findIndex(img => img.path === path);
+            if (index !== -1) {
+                setViewingIndex(index);
+                setIsPanelMaximized(true);
+                // Also update selection to visually lock onto it
+                setSelectedIndices(new Set([index]));
+                setLastSelectedIndex(index);
+            }
+        };
+        window.addEventListener('maximize-in-panel', handleRemoteMaximize);
+        return () => window.removeEventListener('maximize-in-panel', handleRemoteMaximize);
+    }, [images, setViewingIndex, setSelectedIndices, setLastSelectedIndex]);
+
     return (
         <div
             id={`panel-container-${panelId}`}
@@ -194,7 +219,7 @@ const Panel = ({
         >
             {/* Sidebar - Independent for each panel */}
             <div 
-                className="h-full flex flex-col bg-neutral-900/50 shrink-0" 
+                className="h-full flex flex-col bg-neutral-900/50 shrink-0 relative border-r border-neutral-800" 
                 style={{ width: `${sidebarWidth}px` }}
                 onMouseDown={onActivate}
             >
@@ -205,15 +230,15 @@ const Panel = ({
                     setConfirmModal={setConfirmModal}
                     locateTrigger={locateTrigger}
                 />
+                
+                {/* Absolute Resize Handle (Zero Layout Gap) */}
+                <div 
+                    className="absolute right-0 top-0 bottom-0 w-[10px] translate-x-1/2 z-20 cursor-col-resize hover:bg-blue-500/20 transition-colors"
+                    onMouseDown={handleSidebarMouseDown}
+                    onDoubleClick={() => setSidebarWidth(224)}
+                    title="Double click to reset width"
+                />
             </div>
-            
-            {/* Invisible Resize Handle */}
-            <div 
-                className="relative w-[8px] shrink-0 z-10 cursor-col-resize hover:bg-blue-500/20 transition-colors"
-                onMouseDown={handleSidebarMouseDown}
-                onDoubleClick={() => setSidebarWidth(224)}
-                title="Double click to reset width"
-            />
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
@@ -222,6 +247,21 @@ const Panel = ({
                     className={`h-12 border-b border-neutral-800 flex items-center px-4 titlebar-drag-region shrink-0 transition-colors duration-200 ${isActive ? 'bg-blue-900/20 backdrop-blur' : 'bg-neutral-900/90 backdrop-blur'}`}
                     onMouseDown={onActivate}
                 >
+                    {/* Left Side Controls */}
+                    <div className="flex items-center gap-1.5 mr-2 -ml-2 no-drag">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                panelState.handleBack();
+                            }}
+                            disabled={!panelState.canGoBack}
+                            className={`px-2 rounded h-8 transition-colors flex items-center justify-center ${panelState.canGoBack ? 'text-gray-400 hover:bg-neutral-700/50 cursor-pointer' : 'text-neutral-700/50 cursor-not-allowed'}`}
+                            title="Go Back"
+                        >
+                            <ChevronLeft size={20} strokeWidth={2.5} />
+                        </button>
+                    </div>
+
                     <div className={`flex-1 font-medium text-sm truncate text-center no-drag flex items-center justify-center gap-2 ${isActive ? 'text-blue-400' : 'text-gray-400'}`}>
                         {currentFolder && currentFolder !== 'Favorites' && !currentFolder.startsWith('Tag: ') && !currentFolder.startsWith('Tags ') && (
                             <button
@@ -241,8 +281,15 @@ const Panel = ({
                         )}
                     </div>
 
-                    {/* Sort Controls - positioned on the right with margin to avoid close button */}
-                    <div className={`ml-2 ${hasCloseButton ? 'mr-8' : ''}`}>
+                    {/* Right Side Controls */}
+                    <div className={`flex items-center gap-1 ml-2 ${hasCloseButton ? 'mr-8' : ''}`}>
+                        <button
+                            onClick={() => panelState.setIsRecursive(prev => !prev)}
+                            className={`px-2 rounded h-8 transition-colors flex items-center justify-center ${panelState.isRecursive ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-neutral-700/50 text-gray-400'}`}
+                            title="Penetration Browse (Include Subfolders)"
+                        >
+                            <Layers size={16} />
+                        </button>
                         <SortControl
                             sortConfig={panelState.sortConfig}
                             onSortChange={panelState.handleSortChange}
@@ -297,7 +344,7 @@ const Panel = ({
                     )}
 
                     {/* Viewer — fullscreen when opened via double-click, panel-contained when opened via Maximize button */}
-                    {viewingIndex !== null && !isPanelMaximized && (
+                    {viewingIndex !== null && !isPanelMaximized && !remoteImage && (
                         <div className="fixed inset-0 bg-black z-[200] flex flex-col items-center justify-center">
                             <ImageViewer
                                 image={images[viewingIndex]}
@@ -309,16 +356,17 @@ const Panel = ({
                             />
                         </div>
                     )}
-                    {viewingIndex !== null && isPanelMaximized && (
+                    {(viewingIndex !== null || remoteImage) && isPanelMaximized && (
                         <ImageViewer
-                            image={images[viewingIndex]}
+                            image={remoteImage || images[viewingIndex]}
                             onClose={() => {
                                 setViewingIndex(null);
+                                setRemoteImage(null);
                                 setIsPanelMaximized(false);
                             }}
-                            onNext={handleNext}
-                            onPrev={handlePrev}
-                            onDelete={handleViewerDelete}
+                            onNext={remoteImage ? undefined : handleNext}
+                            onPrev={remoteImage ? undefined : handlePrev}
+                            onDelete={remoteImage ? undefined : handleViewerDelete}
                             contained={true}
                         />
                     )}

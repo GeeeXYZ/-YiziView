@@ -124,6 +124,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     const [cropOverwrite, setCropOverwrite] = useState(() => localStorage.getItem('settings_crop_overwrite') === 'true');
     const [thumbFit, setThumbFit] = useState(() => localStorage.getItem('settings_thumb_fit') || 'cover');
     const [gradingIntensity, setGradingIntensity] = useState(() => localStorage.getItem('settings_grading_intensity') || '36');
+    const [networkMode, setNetworkMode] = useState(() => localStorage.getItem('settings_network_mode') || 'direct');
 
     // UI State for Modals
     const [confirmState, setConfirmState] = useState({
@@ -285,6 +286,15 @@ const SettingsModal = ({ isOpen, onClose }) => {
         const newValue = !confirmDelete;
         setConfirmDelete(newValue);
         localStorage.setItem('settings_confirm_delete', newValue);
+    };
+
+    const handleToggleNetworkMode = async () => {
+        const newMode = networkMode === 'direct' ? 'system' : 'direct';
+        setNetworkMode(newMode);
+        localStorage.setItem('settings_network_mode', newMode);
+        if (window.electron?.setNetworkMode) {
+            await window.electron.setNetworkMode(newMode);
+        }
     };
 
     const handleClearThumbnails = async () => {
@@ -492,6 +502,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                                     className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${confirmDelete ? 'bg-blue-600' : 'bg-neutral-600'}`}
                                                 >
                                                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${confirmDelete ? 'translate-x-6' : 'translate-x-1'}`} />
+                                                </button>
+                                            }
+                                        />
+                                    </SectionBlock>
+
+                                    <SectionBlock>
+                                        <SettingRow 
+                                            title="Bypass System Proxy (Global Direct Connection)"
+                                            desc="Force all network traffic (including Plugins and OSS Uploads) to bypass Clash/VPN. Recommended for users in China to prevent OSS upload timeouts."
+                                            action={
+                                                <button
+                                                    onClick={handleToggleNetworkMode}
+                                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${networkMode === 'direct' ? 'bg-blue-600' : 'bg-neutral-600'}`}
+                                                >
+                                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${networkMode === 'direct' ? 'translate-x-6' : 'translate-x-1'}`} />
                                                 </button>
                                             }
                                         />

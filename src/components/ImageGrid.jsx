@@ -146,11 +146,11 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         if (selectedIndices.has(index)) {
             // Dragging a selected item -> Drag all selected
             selectedIndices.forEach(idx => {
-                if (images[idx]) paths.push(images[idx].path);
+                if (images[idx] && !images[idx].isHeaderCard) paths.push(images[idx].path);
             });
         } else {
             // Dragging unselected item -> Drag only this one
-            if (images[index]) paths.push(images[index].path);
+            if (images[index] && !images[index].isHeaderCard) paths.push(images[index].path);
         }
 
         if (paths.length > 0) {
@@ -181,6 +181,10 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         }
 
         if (files.length > 0) {
+            // Prevent accidental "drop-in-place" flattening when dragging items within the same grid
+            const isSelfDrop = files.every(p => images.some(img => img.path === p));
+            if (isSelfDrop) return;
+
             const isCopy = e.ctrlKey;
             const collisions = await FileSystem.checkCollisions(files, currentFolder);
 
@@ -236,9 +240,9 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             const isSelected = imgIndex !== -1 && selectedIndices.has(imgIndex);
 
             if (isSelected && selectedIndices.size > 0) {
-                // Right-clicked on a selected item → affect ALL selected items
+                // Right-clicked on a selected item -> affect ALL selected items
                 selectedIndices.forEach(idx => {
-                    if (images[idx]) affectedPaths.push(images[idx].path);
+                    if (images[idx] && !images[idx].isHeaderCard) affectedPaths.push(images[idx].path);
                 });
             } else {
                 // Right-clicked on an unselected item → affect only this one
@@ -418,8 +422,11 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         const box = getNormalizedBox(selectionBox);
         const newSelectedIndices = new Set(e.ctrlKey ? selectedIndices : []);
 
-        const items = containerRef.current.querySelectorAll('.image-card');
-        items.forEach((item, index) => {
+        const items = containerRef.current.querySelectorAll('[data-grid-item="true"]');
+        items.forEach((item) => {
+            const index = parseInt(item.getAttribute('data-original-index'), 10);
+            if (isNaN(index)) return;
+
             const itemRect = item.getBoundingClientRect();
             const containerRect = containerRef.current.getBoundingClientRect();
 
@@ -434,7 +441,9 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 itemTop < box.y + box.h &&
                 itemBottom > box.y
             ) {
-                newSelectedIndices.add(index);
+                if (images[index] && !images[index].isHeaderCard) {
+                    newSelectedIndices.add(index);
+                }
             }
         });
 
@@ -483,6 +492,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
     // --- Virtualization Logic ---
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(0);
+    const [containerWidth, setContainerWidth] = useState(0);
     const [columns, setColumns] = useState(1);
     const gridGap = 16; // 4 * gap-4 (1rem = 16px)
 
@@ -493,6 +503,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             const currentItemWidth = gridItemSizeRef.current;
             const cols = Math.max(1, Math.floor((width + gridGap) / (currentItemWidth + gridGap)));
             setColumns(cols);
+            setContainerWidth(width); // Store width for precise math math
             setContainerHeight(containerRef.current.clientHeight);
         };
 
@@ -515,20 +526,94 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
         setScrollTop(e.target.scrollTop);
     };
 
-    // Calculate virtual items
-    const itemHeight = Math.floor(gridItemSizeRef.current * (aspectRatio === '1:1' ? 1 : (aspectRatio === '3:4' ? 1.33 : 0.75))) + gridGap;
-    // Note: This matches the aspectRatio calculation in the grid.
-    // For simplicity, let's use a more robust way to get height
+    // --- Dynamic Padding Logic for Multiple Groups ---
+    const paddedImages = React.useMemo(() => {
+        if (!images || images.length === 0) return [];
+        const hasHeaders = images.some(img => img.isHeaderCard);
+        if (!hasHeaders) {
+            return images.map((img, idx) => ({ ...img, originalIndex: idx }));
+        }
+
+        const result = [];
+        let currentGroup = [];
+        for (let i = 0; i < images.length; i++) {
+            if (images[i].isHeaderCard && currentGroup.length > 0) {
+                result.push(...currentGroup);
+                const remainder = result.length % columns;
+                if (remainder !== 0) {
+                    const padCount = columns - remainder;
+                    for (let p = 0; p < padCount; p++) {
+                        result.push({ isSpacer: true, path: `spacer_${images[i].subDir}_${p}` });
+                    }
+                }
+                currentGroup = [];
+            }
+            currentGroup.push({ ...images[i], originalIndex: i });
+        }
+        if (currentGroup.length > 0) {
+            result.push(...currentGroup);
+        }
+        return result;
+    }, [images, columns]);
+
+    // Calculate virtual items using precise mathematically stretched 1fr widths
     const ratioValue = aspectRatio.split(':');
     const hRatio = parseFloat(ratioValue[1]) / parseFloat(ratioValue[0]);
-    const calculatedItemHeight = gridItemSizeRef.current * hRatio + gridGap;
+    // The CSS grid is 1fr bounded, so real items dynamically stretch.
+    const actualItemWidth = columns > 0 && containerWidth > 0 
+        ? (containerWidth - (columns - 1) * gridGap) / columns 
+        : gridItemSizeRef.current;
+    
+    const calculatedItemHeight = actualItemWidth * hRatio + gridGap;
 
-    const totalRows = Math.ceil(images.length / columns);
+    const totalRows = Math.ceil(paddedImages.length / columns);
     const startIndex = Math.max(0, Math.floor(scrollTop / calculatedItemHeight) * columns);
-    const endIndex = Math.min(images.length, Math.ceil((scrollTop + containerHeight) / calculatedItemHeight) * columns + columns); // Extra row for safety
+    const endIndex = Math.min(paddedImages.length, Math.ceil((scrollTop + containerHeight) / calculatedItemHeight) * columns + columns); // Extra row for safety
 
-    const visibleImages = images.slice(startIndex, endIndex);
+    const visibleImages = paddedImages.slice(startIndex, endIndex);
     const offsetY = Math.floor(startIndex / columns) * calculatedItemHeight;
+
+    // Calculate Group Backgrounds dynamically based on Math Rows
+    const groupMath = React.useMemo(() => {
+        if (!paddedImages || paddedImages.length === 0) return [];
+        const groups = [];
+        let currentGroup = null;
+
+        for (let i = 0; i < paddedImages.length; i++) {
+            if (paddedImages[i].isHeaderCard) {
+                if (currentGroup) {
+                    currentGroup.end = i - 1;
+                    groups.push(currentGroup);
+                }
+                currentGroup = {
+                    subDir: paddedImages[i].subDir,
+                    start: i,
+                    end: i
+                };
+            } else if (currentGroup && paddedImages[i].subDir !== currentGroup.subDir && !paddedImages[i].isSpacer) {
+                // If we hit an image that doesn't match our group (e.g. root images), close the box!
+                currentGroup.end = i - 1;
+                groups.push(currentGroup);
+                currentGroup = null;
+            }
+        }
+        if (currentGroup) {
+            currentGroup.end = paddedImages.length - 1;
+            groups.push(currentGroup);
+        }
+
+        // Convert array indices to physical bounding rects
+        return groups.map(g => {
+            const startRow = Math.floor(g.start / columns);
+            const MathEndRow = Math.floor(g.end / columns);
+            
+            return {
+                ...g,
+                top: startRow * calculatedItemHeight,
+                height: (MathEndRow - startRow + 1) * calculatedItemHeight
+            };
+        });
+    }, [paddedImages, columns, calculatedItemHeight]);
 
     return (
         <div
@@ -541,6 +626,23 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             onScroll={handleScroll}
         >
             <div className="p-4 relative" style={{ height: totalRows * calculatedItemHeight }}>
+                {/* Background Group Math Layers */}
+                {groupMath.length > 0 && (
+                    <div className="absolute top-4 left-4 right-4 pointer-events-none z-0">
+                        {groupMath.map(g => (
+                            <div key={g.subDir}
+                                className="absolute bg-white/[0.02] border border-white/5 rounded-xl"
+                                style={{
+                                    top: g.top - 6,
+                                    left: -6,
+                                    right: -6,
+                                    height: g.height - gridGap + 12
+                                }}
+                            />
+                        ))}
+                    </div>
+                )}
+
                 {/* Selection Box */}
                 {isDragSelecting && (
                     <div
@@ -549,7 +651,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     />
                 )}
 
-                {images.length === 0 ? (
+                {paddedImages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
                         <ImageIcon size={64} className="mb-4 opacity-20" />
                         <p>Select a folder to view images</p>
@@ -564,17 +666,44 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                     >
                         {visibleImages.map((img, relativeIndex) => {
                             const i = startIndex + relativeIndex;
+                            const realIndex = img.originalIndex;
+
+                            if (img.isSpacer) {
+                                return <div key={img.path} className="pointer-events-none" />;
+                            }
+
+                            if (img.isHeaderCard) {
+                                return (
+                                    <div key={img.path} 
+                                         data-grid-item="true"
+                                         data-original-index={realIndex}
+                                         className="relative rounded-lg flex flex-col items-center justify-center p-4 transition-all select-none z-10 group bg-transparent"
+                                         style={{ aspectRatio: aspectRatio.replace(':', '/') }}>
+                                        {/* Inner dashed stroke */}
+                                        <div className="absolute inset-[4px] rounded-[calc(0.5rem-4px)] border-2 border-dashed border-neutral-700/40 pointer-events-none transition-colors group-hover:border-neutral-600/50"></div>
+                                        
+                                        <div className="bg-neutral-950/20 p-4 rounded-full border border-neutral-800 mb-3 shadow-[0_4px_12px_rgba(0,0,0,0.4)] text-neutral-400 z-10">
+                                            <Folder size={28} strokeWidth={1} />
+                                        </div>
+                                        <span className="text-xs font-medium text-center uppercase tracking-[0.2em] break-all w-full leading-relaxed text-neutral-500 z-10">{img.name}</span>
+                                    </div>
+                                );
+                            }
+
                             return (
                                 <div
                                     key={img.path} // Use path as key for better stability
-                                    onClick={(e) => onImageClick(i, e)}
-                                    onDoubleClick={() => onImageDoubleClick(i)}
+                                    data-grid-item="true"
+                                    data-original-index={realIndex}
+                                    onClick={(e) => onImageClick(realIndex, e)}
+                                    // Make sure we pass the correct index up
+                                    onDoubleClick={() => onImageDoubleClick(realIndex)}
                                     onContextMenu={(e) => handleContextMenu(e, img.path)}
                                     draggable="true"
-                                    onDragStart={(e) => handleDragStart(e, i)}
+                                    onDragStart={(e) => handleDragStart(e, realIndex)}
                                     className={`
                                         relative group cursor-pointer bg-neutral-800 rounded-lg overflow-hidden border-2 transition-all duration-200 image-card
-                                        ${selectedIndices.has(i) 
+                                        ${selectedIndices.has(realIndex) 
                                             ? (isActive 
                                                 ? 'border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]' 
                                                 : 'border-neutral-500 shadow-[0_0_0_2px_rgba(115,115,115,0.3)]') 
@@ -600,7 +729,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                     {/* Top Left Indicators (Color Tag & Favorite) */}
                                     <div className="absolute top-2 left-2 flex items-center gap-2 z-30 pointer-events-none">
                                         {/* Color Tag Dot */}
-                                        {showColorTag && imageColors[img.path] && (
+                                        {showColorTag && imageColors && imageColors[img.path] && (
                                             <div 
                                                 className="w-4 h-4 rounded-full pointer-events-none shadow-[inset_0_2px_4px_rgba(0,0,0,0.15)] border-[1.5px] border-white/90"
                                                 style={{ backgroundColor: imageColors[img.path] }}
@@ -618,7 +747,7 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                                     </div>
 
                                     {/* Selection Check Circle */}
-                                    {selectedIndices.has(i) && (
+                                    {selectedIndices.has(realIndex) && (
                                         <div className={`absolute top-2 right-2 rounded-full p-0.5 shadow-sm z-20 ${isActive ? 'bg-blue-500' : 'bg-neutral-500'}`}>
                                             <Check size={12} className={isActive ? "text-white" : "text-neutral-200"} strokeWidth={3} />
                                         </div>

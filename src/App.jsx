@@ -43,6 +43,15 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+  // Initialize System Proxy Behavior on Boot
+  useEffect(() => {
+    if (window.electron?.setNetworkMode) {
+      // Default to "direct" mode to bypass proxy for OSS integration
+      const proxyMode = localStorage.getItem('settings_network_mode') || 'direct';
+      window.electron.setNetworkMode(proxyMode);
+    }
+  }, []);
+
   // Create panel states using custom hook
   const panel1State = usePanelState('panel-1');
   const panel2State = usePanelState('panel-2');
@@ -107,8 +116,21 @@ function App() {
             }
         };
 
+        const handlePluginOpenFolder = (e) => {
+            if (e.detail && e.detail.path) {
+                const { panelStates } = stateRef.current;
+                // Force panel-1 (the primary UI image grid) to navigate.
+                // If it was triggering on activeState (the plugin panel itself), it wouldn't be visibly rendered.
+                const targetState = panelStates['panel-1'];
+                if (targetState) {
+                    targetState.handleFolderSelect(e.detail.path);
+                }
+            }
+        };
+
         window.addEventListener('context-menu-action', handleContextMenuMsg);
         window.addEventListener('open-global-viewer', handleOpenGlobalViewer);
+        window.addEventListener('plugin-open-folder', handlePluginOpenFolder);
         
         let stopPluginWatcher = null;
         if (window.electron && window.electron.onPluginChanged) {
@@ -118,6 +140,7 @@ function App() {
         return () => {
             window.removeEventListener('context-menu-action', handleContextMenuMsg);
             window.removeEventListener('open-global-viewer', handleOpenGlobalViewer);
+            window.removeEventListener('plugin-open-folder', handlePluginOpenFolder);
             if (stopPluginWatcher) stopPluginWatcher();
         };
     }, []);

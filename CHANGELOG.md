@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## v0.9.7
+
+✨ Features
+- Redesigned penetration mode UI to a minimalist hollow wireframe
+- Penetration mode sub-folders now natively pin to the top when sorting
+
+⚡ Perf
+- Rebuilt recursive folder scanner using BFS engine to solve `EMFILE` limits and enable instant massive deep-tree loading
+
+🐛 Fixes
+- Fixed React duplicate key crash when sorting images in penetration mode
+- Fixed selection box highlighting drift when spacer grids are injected
+- Prevented accidental file flattening when dropping an image inside the same penetrated grid
+
+---
+
+✨ 新特性
+- 将穿透模式的界面视觉重构为极简透明金属网格
+- 穿透模式下的子文件夹标题现在会在排序时自动置顶
+
+⚡ 性能
+- 彻底使用广度优先搜索架构重构递归探针，解决系统级 EMFILE 并发上限崩溃，实现海量深层文件瞬时加载
+
+🐛 修复
+- 修复了在穿透模式下触发排序引擎时导致的 React UI 套娃克隆与崩溃问题
+- 修复了因为增加占位网格时导致的底层视觉点亮坐标偏移问题
+- 拦截了将图片丢入所属同一个穿透网络自身时的扁平化破坏现象
+
 ## v0.9.6
 
 ✨ Features

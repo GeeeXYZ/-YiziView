@@ -57,6 +57,38 @@ protocol.registerSchemesAsPrivileged([
 // Prevent garbage collection
 let mainWindow;
 
+const WECHAT_APP_ID = "wxfc4cbbde568ce709";
+const WECHAT_REDIRECT_URI = "https://wx-cloth-ehtgmbzhgb.cn-shenzhen.fcapp.run/client/wx_login_redirect";
+
+function attachHtmlFriendlyHeaders(session) {
+  session.webRequest.onHeadersReceived({ urls: ["*://*/*"] }, (details, callback) => {
+    const responseHeaders = {};
+    for (const [key, values] of Object.entries(details.responseHeaders || {})) {
+      const k = key.toLowerCase();
+      responseHeaders[k] = Array.isArray(values) ? [...values] : [String(values)];
+    }
+
+    const disposition = responseHeaders["content-disposition"]?.[0] ?? "";
+    if (/attachment/i.test(disposition)) {
+      delete responseHeaders["content-disposition"];
+    }
+
+    const ct0 = responseHeaders["content-type"]?.[0]?.split(";")[0]?.trim().toLowerCase() ?? "";
+    if (
+      ct0 === "application/octet-stream" ||
+      ct0 === "binary/octet-stream" ||
+      ct0 === "application/x-download" ||
+      ct0 === "application/force-download" ||
+      ct0 === "application/x-msdownload"||
+      ct0 === "text/plain"
+    ) {
+      responseHeaders["content-type"] = ["text/html; charset=utf-8"];
+    }
+
+    callback({ responseHeaders });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: windowState.bounds?.width || 1200,
@@ -241,6 +273,160 @@ app.on('window-all-closed', () => {
 // IPC Handlers
 ipcMain.handle('ping', () => 'pong');
 
+ipcMain.handle('plugin-open-wx-login', async (event, payload) => {
+  let state = payload;
+  let needsPhone = true; // default to true to be safe
+  if (typeof payload === 'object' && payload !== null) {
+    state = payload.state;
+    needsPhone = payload.needsPhone !== false;
+  }
+
+  const wxLoginUrl =
+    "https://open.weixin.qq.com/connect/qrconnect?" +
+    `appid=${WECHAT_APP_ID}&` +
+    `redirect_uri=${encodeURIComponent(WECHAT_REDIRECT_URI)}&` +
+    "response_type=code&" +
+    "scope=snsapi_login&" +
+    `state=${encodeURIComponent(state)}` +
+    "#wechat_redirect";
+
+  // 保证登录窗口是唯一的
+  if (global.wxLoginWindow && !global.wxLoginWindow.isDestroyed()) {
+    global.wxLoginWindow.focus();
+  } else {
+    global.wxLoginWindow = new BrowserWindow({
+      parent: mainWindow,
+      modal: false,
+      width: 400,
+      height: 500,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      autoHideMenuBar: true,
+      alwaysOnTop: true,
+      closable: true,
+      title: 'WeChat Login — YiziView',
+      backgroundColor: '#111111',
+      webPreferences: {
+        partition: `wxqr-unique`,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    global.wxLoginWindow.on('closed', () => {
+      global.wxLoginWindow = null;
+    });
+  }
+  const loginWindow = global.wxLoginWindow;
+
+  attachHtmlFriendlyHeaders(loginWindow.webContents.session);
+  loginWindow.loadURL(wxLoginUrl);
+
+  let wxLoginClosedSent = false;
+
+  // Inject dark theme CSS after the WeChat page finishes loading
+  loginWindow.webContents.on('did-finish-load', () => {
+    const currentUrl = loginWindow.webContents.getURL();
+    
+    // If it's the backend redirect page, replace the entire body with a custom UI
+    if (currentUrl.startsWith(WECHAT_REDIRECT_URI)) {
+      // 1. Kick off original login flow early
+      if (!wxLoginClosedSent && !event.sender.isDestroyed()) {
+        event.sender.send('wx-login-closed');
+        wxLoginClosedSent = true;
+      }
+
+      const phoneHtml = needsPhone ? `
+            <div style="margin-top: 30px; width: 100%; max-width: 260px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+              <p style="color: #888; font-size: 12px; letter-spacing: 1px;">Please enter your mobile number<br>to complete registration</p>
+              <input type="text" id="phone_input" placeholder="Phone Number" style="width: 200px; background: #222; border: 1px solid #444; color: white; padding: 10px 14px; border-radius: 6px; outline: none; text-align: center; font-size: 14px; letter-spacing: 1px;" />
+              <button onclick="window.location.href='https://phone-submit/?phone=' + document.getElementById('phone_input').value" style="width: 200px; background: #3b82f6; border: none; color: white; padding: 10px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; letter-spacing: 1px; margin-top: 4px;">CONTINUE</button>
+            </div>
+      ` : `
+            <div style="margin-top: 30px; text-align: center;">
+              <p style="color: #888; font-size: 13px;">Login Complete. You can now close this window.</p>
+            </div>
+      `;
+
+      if (!needsPhone) {
+        setTimeout(() => {
+          if (loginWindow && !loginWindow.isDestroyed()) {
+            loginWindow.close();
+          }
+        }, 1500);
+      }
+
+      loginWindow.webContents.executeJavaScript(`
+        document.body.innerHTML = \`
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #111; color: #fff; font-family: ui-sans-serif, system-ui, sans-serif;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 20px;">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <h2 style="font-size: 16px; font-weight: 500; letter-spacing: 2px; color: #eee; margin: 0; text-align: center;">AUTHORIZATION SUCCESS</h2>
+            \${ \`${phoneHtml}\` }
+          </div>
+        \`;
+      `).catch(() => {});
+    } else {
+      // It's the WeChat QR code page
+      loginWindow.webContents.insertCSS(`
+        body, html {
+          background: #111 !important;
+          color: #ccc !important;
+        }
+        .wrp_code {
+          background: #1a1a1a !important;
+          border-radius: 12px !important;
+          border: 1px solid #333 !important;
+          padding: 20px !important;
+        }
+        .title {
+          color: #eee !important;
+        }
+        .info {
+          color: #888 !important;
+        }
+        .qrcode img, .impowerBox .qrcode img {
+          border-radius: 8px !important;
+        }
+        /* Hide unnecessary WeChat branding noise */
+        .status_browser, .faq, .os-tips, .norma498l_title_desc {
+          display: none !important;
+        }
+        /* Overall container centering */
+        .login_container, .qrcode_container, .wrp_code_login, .impowerBox {
+          background: transparent !important;
+        }
+      `).catch(() => {});
+    }
+  });
+
+  loginWindow.webContents.on('will-navigate', (e, url) => {
+    if (url.startsWith('https://phone-submit/?phone=')) {
+      e.preventDefault();
+      const phone = new URL(url).searchParams.get('phone');
+      if (phone && phone.trim() !== '' && !event.sender.isDestroyed()) {
+        event.sender.send('wx-login-phone', phone.trim());
+      }
+      setTimeout(() => {
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          loginWindow.close();
+        }
+      }, 300);
+    }
+  });
+
+  loginWindow.on('close', () => {
+    // Send event back to the window that requested it, if not yet sent
+    if (!wxLoginClosedSent && !event.sender.isDestroyed()) {
+      event.sender.send('wx-login-closed');
+      wxLoginClosedSent = true;
+    }
+  });
+  return true;
+});
+
 ipcMain.handle('get-plugins', () => {
     return pluginManager.getRendererPluginsConfig();
 });
@@ -260,6 +446,39 @@ ipcMain.handle('plugin-toggle', (event, { id, enabled }) => {
 
 ipcMain.handle('plugin-delete', async (event, id) => {
     return await pluginManager.deletePlugin(id);
+});
+
+ipcMain.handle('plugin-download-asset', async (event, { url, outputPath }) => {
+    const https = require('https');
+    const http = require('http');
+    const fs = require('fs');
+    const path = require('path');
+    
+    return new Promise((resolve) => {
+        try {
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            const file = fs.createWriteStream(outputPath);
+            
+            const client = url.startsWith('https') ? https : http;
+            client.get(url, (response) => {
+                if (response.statusCode >= 200 && response.statusCode < 300) {
+                    response.pipe(file);
+                    file.on('finish', () => {
+                        file.close(() => resolve({ success: true, path: outputPath }));
+                    });
+                } else {
+                    file.close();
+                    fs.unlink(outputPath, () => {});
+                    resolve({ success: false, error: `HTTP ${response.statusCode}` });
+                }
+            }).on('error', (err) => {
+                fs.unlink(outputPath, () => {});
+                resolve({ success: false, error: err.message });
+            });
+        } catch (e) {
+            resolve({ success: false, error: e.message });
+        }
+    });
 });
 
 ipcMain.handle('check-for-updates', async () => {
@@ -367,6 +586,7 @@ ipcMain.handle('scan-folder', async (event, args) => {
   // Support both old signature (string) and new ({ path, panelId })
   const folderPath = typeof args === 'string' ? args : args.path;
   const panelId = typeof args === 'object' ? args.panelId : 'default';
+  const isRecursive = typeof args === 'object' ? args.isRecursive : false;
 
   try {
     // 1. Manage Watcher for this panel
@@ -398,7 +618,7 @@ ipcMain.handle('scan-folder', async (event, args) => {
           stabilityThreshold: 100,
           pollInterval: 100
         },
-        depth: 0
+        depth: isRecursive ? undefined : 0
       });
 
       watchers.set(panelId, { path: folderPath, watcher: w });
@@ -417,28 +637,74 @@ ipcMain.handle('scan-folder', async (event, args) => {
     });
 
     // 2. Read Files
-    const files = await fs.readdir(folderPath);
-    console.log(`[Scan] Scanning ${folderPath}, found ${files.length} files`);
+    let filePaths = [];
+    if (isRecursive) {
+      const ignoreDirs = ['.git', 'node_modules', '.vscode', 'build', 'dist', '.yizi-thumbnails', '.thumbcache'];
+      const walkDirIterative = async (rootDir, maxDepth = 20) => {
+          const out = [];
+          // queue of { dir, depth }
+          const queue = [{ dir: rootDir, depth: 0 }];
+
+          while (queue.length > 0) {
+              const { dir: currentDir, depth } = queue.shift();
+              if (depth > maxDepth) continue;
+
+              let entries = [];
+              try {
+                  entries = await fs.readdir(currentDir, { withFileTypes: true });
+              } catch (e) {
+                  // Ignore permissions error or missing folders
+                  continue;
+              }
+
+              for (const entry of entries) {
+                  if (entry.isDirectory()) {
+                      if (!entry.name.startsWith('.') && !ignoreDirs.includes(entry.name)) {
+                          queue.push({ dir: path.join(currentDir, entry.name), depth: depth + 1 });
+                      }
+                  } else if (entry.isFile()) {
+                      out.push(path.join(currentDir, entry.name));
+                  }
+              }
+          }
+          return out;
+      };
+      filePaths = await walkDirIterative(folderPath);
+    } else {
+      const files = await fs.readdir(folderPath);
+      filePaths = files.map(file => path.join(folderPath, file));
+    }
+
+    console.log(`[Scan] Scanning ${folderPath}${isRecursive ? ' (Recursive)' : ''}, found ${filePaths.length} files`);
 
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.mp4', '.webm', '.mov', '.mkv'];
-    // Use pathToFileURL for safe encoding (handles Chinese, spaces, #, etc.)
-
-    const images = await Promise.all(files
-      .filter(file => {
-        const ext = path.extname(file).toLowerCase();
+    
+    // Map full paths to image objects
+    const images = await Promise.all(filePaths
+      .filter(fullPath => {
+        const ext = path.extname(fullPath).toLowerCase();
         return imageExtensions.includes(ext);
       })
-      .map(async file => {
-        const fullPath = path.join(folderPath, file);
-        const fileUrl = pathToFileURL(fullPath).href; // file:///C:/... (encoded)
-        // Convert to media schema
+      .map(async fullPath => {
+        const file = path.basename(fullPath);
+        const fileUrl = pathToFileURL(fullPath).href; // file:///C:/...
         const mediaUrl = fileUrl.replace('file:///', 'media://local/');
+        
+        let subDir = '';
+        if (isRecursive) {
+            const relPath = path.relative(folderPath, fullPath);
+            const parentDir = path.dirname(relPath);
+            if (parentDir !== '.' && parentDir !== '') {
+                // Ensure front-slashes for consistent cross-platform display
+                subDir = parentDir.split(path.sep).join('/');
+            }
+        }
 
         let stats = { size: 0, mtimeMs: 0 };
         try {
           stats = await fs.stat(fullPath);
         } catch (e) {
-          console.error(`Failed to stat file: ${fullPath}`, e);
+          // ignore
         }
 
         return {
@@ -446,7 +712,8 @@ ipcMain.handle('scan-folder', async (event, args) => {
           path: fullPath,
           url: mediaUrl,
           size: stats.size,
-          mtimeMs: stats.mtimeMs
+          mtimeMs: stats.mtimeMs,
+          subDir: subDir
         };
       }));
 
@@ -1692,6 +1959,23 @@ ipcMain.handle('clear-thumbnails-for-folder', async (event, folderPath) => {
     return { success: true, count: deletedCount };
   } catch (error) {
     console.error('Failed to clear thumbnails for folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('set-network-mode', async (event, mode) => {
+  try {
+    const { session } = require('electron');
+    if (mode === 'direct') {
+      await session.defaultSession.setProxy({ mode: 'direct', proxyRules: 'direct://' });
+      console.log('Network Mode: Forced DIRECT (Proxy Bypassed)');
+    } else {
+      await session.defaultSession.setProxy({ mode: 'system' });
+      console.log('Network Mode: SYSTEM (Proxy Enabled)');
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to set network mode:', error);
     return { success: false, error: error.message };
   }
 });

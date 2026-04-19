@@ -183,12 +183,15 @@ const FolderTree = ({ name, path, onSelect, level = 0, currentPath, initialHasCh
         e.stopPropagation();
         onSelect(path);
 
-        // Auto refresh children status when clicked
-        if (isExpanded) {
-            refreshSubfolders();
-        } else {
-            checkChildren();
+        if (!isExpanded) {
+            setIsExpanded(true);
+            if (!searchQuery && setFolderExpanded) {
+                setFolderExpanded(path, true);
+            }
         }
+        
+        // Auto refresh children status when clicked
+        refreshSubfolders();
     };
 
 

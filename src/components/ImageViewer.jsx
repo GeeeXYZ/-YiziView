@@ -193,6 +193,40 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         };
     }, []);
 
+    // ===== Native Fullscreen Lock =====
+    const isEditingRef = useRef(isEditing);
+    useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
+    
+    useEffect(() => {
+        if (!contained) {
+            const enterFullscreen = async () => {
+                try {
+                    if (!document.fullscreenElement) {
+                        await document.documentElement.requestFullscreen();
+                    }
+                } catch(e) { console.error('Fullscreen request failed', e); }
+            };
+            enterFullscreen();
+
+            const handleFullscreenChange = () => {
+                if (!document.fullscreenElement) {
+                    // Browser native exit fullscreen (Esc)
+                    if (!isEditingRef.current) {
+                        onClose();
+                    }
+                }
+            };
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+            return () => {
+                document.removeEventListener('fullscreenchange', handleFullscreenChange);
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(e => {});
+                }
+            };
+        }
+    }, [contained, onClose]);
+
     // ===== Persist viewer preferences =====
     useEffect(() => { localStorage.setItem('viewer_show_toolbar', showToolbar); }, [showToolbar]);
     useEffect(() => { localStorage.setItem('viewer_brush_color', brushColor); }, [brushColor]);
@@ -701,11 +735,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     useEffect(() => {
         const handleWheel = (e) => {
             if (!containerRef.current || !containerRef.current.contains(e.target)) return;
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const delta = e.deltaY * -0.001;
-                setZoom(prev => Math.max(0.1, Math.min(10, prev + delta * 2)));
-            }
+            e.preventDefault();
+            const delta = e.deltaY * -0.001;
+            setZoom(prev => Math.max(0.1, Math.min(10, prev + delta * 2)));
         };
         window.addEventListener('wheel', handleWheel, { passive: false });
         return () => window.removeEventListener('wheel', handleWheel);
@@ -1142,49 +1174,52 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             tabIndex={-1}
         >
             {/* Top Bar Controls */}
-            <div className="absolute top-6 left-6 flex gap-2 z-[60] no-drag">
-                {/* Close */}
+            <div className={`absolute top-6 right-6 flex items-center justify-end gap-2 z-[60] no-drag ${contained ? '' : 'backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full border border-white/10'}`}>
+                {/* AutoPlay */}
                 <button
-                    onClick={(e) => { e.stopPropagation(); onClose(); setIsAutoPlay(false); }}
-                    className="text-white/80 hover:text-white p-2.5 rounded-full hover:bg-black/20 transition-all drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
-                    title="Close (Esc)"
+                    onClick={(e) => { e.stopPropagation(); setIsAutoPlay(!isAutoPlay); }}
+                    className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isAutoPlay ? 'text-blue-400 drop-shadow-none bg-black/60' : 'text-white/80 hover:text-white'}`}
+                    title={isAutoPlay ? "Stop AutoPlay" : "Start AutoPlay"}
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-
-                {/* Favorite */}
-                <button
-                    onClick={toggleFavorite}
-                    className={`p-2.5 rounded-full hover:bg-black/20 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isFav ? 'text-[#A61616] drop-shadow-none' : 'text-white/80 hover:text-white'}`}
-                    title={isFav ? "Unfavorite" : "Favorite"}
-                >
-                    <Heart className="h-6 w-6" fill={isFav ? "currentColor" : "none"} strokeWidth={2} />
+                    {isAutoPlay ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    )}
                 </button>
 
                 {/* Toolbar Toggle */}
                 {!isVideo && (
                     <button
                         onClick={toggleToolbar}
-                        className={`p-2.5 rounded-full hover:bg-black/20 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${!showToolbar ? 'text-gray-400' : 'text-white/80 hover:text-white'}`}
+                        className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${!showToolbar ? 'text-gray-400' : 'text-white/80 hover:text-white'}`}
                         title={showToolbar ? "Hide Toolbar" : "Show Toolbar"}
                     >
-                        {showToolbar ? <Eye className="h-6 w-6" strokeWidth={2} /> : <EyeOff className="h-6 w-6" strokeWidth={2} />}
+                        {showToolbar ? <Eye className="h-5 w-5" strokeWidth={2} /> : <EyeOff className="h-5 w-5" strokeWidth={2} />}
                     </button>
                 )}
 
-                {/* AutoPlay */}
+                {/* Favorite */}
                 <button
-                    onClick={(e) => { e.stopPropagation(); setIsAutoPlay(!isAutoPlay); }}
-                    className={`p-2.5 rounded-full hover:bg-black/20 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isAutoPlay ? 'text-blue-400 drop-shadow-none bg-black/40' : 'text-white/80 hover:text-white'}`}
-                    title={isAutoPlay ? "Stop AutoPlay" : "Start AutoPlay"}
+                    onClick={toggleFavorite}
+                    className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isFav ? 'text-[#A61616] drop-shadow-none' : 'text-white/80 hover:text-white'}`}
+                    title={isFav ? "Unfavorite" : "Favorite"}
                 >
-                    {isAutoPlay ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                    )}
+                    <Heart className="h-5 w-5" fill={isFav ? "currentColor" : "none"} strokeWidth={2} />
+                </button>
+
+                {/* Separator */}
+                <div className="w-[1px] h-5 bg-white/20 mx-1"></div>
+
+                {/* Close */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); onClose(); setIsAutoPlay(false); }}
+                    className="text-white/80 hover:text-red-500 hover:bg-red-500/20 p-2 rounded-full transition-all drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+                    title="Close (Esc)"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                 </button>
             </div>
 
