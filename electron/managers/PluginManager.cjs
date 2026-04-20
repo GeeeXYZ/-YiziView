@@ -41,6 +41,51 @@ class PluginManager {
             fs.mkdirSync(this.pluginsDir, { recursive: true });
         }
 
+        // ============================================
+        // PRE-INSTALLED PLUGIN SEEDING
+        // ============================================
+        if (process.env.NODE_ENV !== 'development') {
+            const builtinPluginsDir = path.join(process.resourcesPath, 'plugins');
+            if (fs.existsSync(builtinPluginsDir)) {
+                try {
+                    const pluginFolders = fs.readdirSync(builtinPluginsDir);
+                    for (const folder of pluginFolders) {
+                        const targetUserDir = path.join(this.pluginsDir, folder);
+                        if (!fs.existsSync(targetUserDir)) {
+                            console.log(`[PluginManager] First launch: Seeding default plugin: ${folder}`);
+                            fs.cpSync(path.join(builtinPluginsDir, folder), targetUserDir, { recursive: true });
+                        }
+                    }
+                } catch (e) {
+                    console.error('[PluginManager] Failed to seed built-in plugins:', e);
+                }
+            }
+        }
+
+        // ============================================
+        // OTA PLUGIN HOT-SWAP (Prevention of EBUSY logic)
+        // ============================================
+        try {
+            const tempUpdatesDir = path.join(this.pluginsDir, '.temp-updates');
+            const targetUpdateDir = path.join(tempUpdatesDir, 'Yizi-studio-AIstudio-new');
+            const activePluginDir = path.join(this.pluginsDir, 'Yizi-studio-AIstudio');
+            
+            if (fs.existsSync(targetUpdateDir)) {
+                console.log(`[PluginManager] Detected pending OTA update. Executing swap...`);
+                if (fs.existsSync(activePluginDir)) {
+                    // Try to safely remove old plugin
+                    fs.rmSync(activePluginDir, { recursive: true, force: true });
+                }
+                // Atomic swap to active directory
+                fs.renameSync(targetUpdateDir, activePluginDir);
+                // Clean temp
+                fs.rmSync(tempUpdatesDir, { recursive: true, force: true });
+                console.log(`[PluginManager] OTA swap successful!`);
+            }
+        } catch (updateErr) {
+            console.error(`[PluginManager] Failed to apply OTA swap:`, updateErr);
+        }
+
         // Register custom protocol for serving plugin files to the renderer safely.
         // It captures yiziview-plugin://<plugin-name>/<file-path>
         protocol.handle('yiziview-plugin', (request) => {

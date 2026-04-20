@@ -197,6 +197,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     const isEditingRef = useRef(isEditing);
     useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
     
+    const onCloseRef = useRef(onClose);
+    useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+    
     useEffect(() => {
         if (!contained) {
             const enterFullscreen = async () => {
@@ -212,7 +215,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 if (!document.fullscreenElement) {
                     // Browser native exit fullscreen (Esc)
                     if (!isEditingRef.current) {
-                        onClose();
+                        onCloseRef.current();
                     }
                 }
             };
@@ -225,7 +228,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 }
             };
         }
-    }, [contained, onClose]);
+    }, [contained]);
 
     // ===== Persist viewer preferences =====
     useEffect(() => { localStorage.setItem('viewer_show_toolbar', showToolbar); }, [showToolbar]);

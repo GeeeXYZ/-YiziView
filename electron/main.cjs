@@ -799,11 +799,108 @@ ipcMain.handle('rename-item', async (event, { oldPath, newName }) => {
     const newPath = path.join(dir, newName);
     await fs.rename(oldPath, newPath);
     return true;
-  } catch (error) {
-    console.error('Error renaming item:', error);
+  } catch (err) {
+    console.error('Rename failed', err);
     return false;
   }
 });
+
+// ============================================
+// STS PLUGIN OTA UPDATER HANDLER
+// ============================================
+ipcMain.handle('plugin-sts-update-download', async (event, { url, sha256Checksum }) => {
+  const https = require('https');
+  const crypto = require('crypto');
+  const { execSync } = require('child_process');
+  
+  return new Promise(async (resolve, reject) => {
+    try {
+      console.log(`[PluginUpdater] Starting secure download...`);
+      const pluginsDir = path.join(app.getPath('userData'), 'plugins');
+      const tempUpdatesDir = path.join(pluginsDir, '.temp-updates');
+      
+      // Ensure temp directory exists
+      await fs.mkdir(tempUpdatesDir, { recursive: true });
+      
+      const zipPath = path.join(tempUpdatesDir, 'aistudio.zip');
+      const extractTarget = path.join(tempUpdatesDir, 'Yizi-studio-AIstudio-new');
+      
+      // Clean up previous artifacts
+      try { await fs.rm(zipPath, { force: true }); } catch (e) {}
+      try { await fs.rm(extractTarget, { recursive: true, force: true }); } catch (e) {}
+
+      // Download file stream
+      const fileStream = require('fs').createWriteStream(zipPath);
+      
+      const requestLib = url.startsWith('https:') ? require('https') : require('http');
+      requestLib.get(url, (response) => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          return reject(new Error(`[PluginUpdater] HTTP Failed: ${response.statusCode}`));
+        }
+
+        const totalBytes = parseInt(response.headers['content-length'], 10);
+        let downloadedBytes = 0;
+
+        response.on('data', (chunk) => {
+          downloadedBytes += chunk.length;
+          // Send progress to renderer
+          if (!event.sender.isDestroyed()) {
+             event.sender.send('plugin-update-progress', {
+                 percent: totalBytes ? Math.round((downloadedBytes / totalBytes) * 100) : 0
+             });
+          }
+        });
+
+        response.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          fileStream.close(async () => {
+             console.log(`[PluginUpdater] Download finished. Verifying SHA-256...`);
+             try {
+                // Verify SHA256 integrity
+                const fileBuffer = await fs.readFile(zipPath);
+                const hashSum = crypto.createHash('sha256');
+                hashSum.update(fileBuffer);
+                const localHash = hashSum.digest('hex');
+
+                if (localHash !== sha256Checksum) {
+                   await fs.rm(zipPath, { force: true });
+                   return reject(new Error(`[PluginUpdater] CRITICAL: SHA-256 checksum mismatch! Expected ${sha256Checksum}, got ${localHash}. File deleted.`));
+                }
+                
+                console.log(`[PluginUpdater] SHA-256 Validated! Extracting...`);
+                // Extract using Windows Native PowerShell to avoid dependencies
+                await fs.mkdir(extractTarget, { recursive: true });
+                const psCommand = `Expand-Archive -Path "${zipPath}" -DestinationPath "${extractTarget}" -Force`;
+                execSync(psCommand, { shell: 'powershell.exe', stdio: 'ignore' });
+                
+                console.log(`[PluginUpdater] Extraction completed!`);
+                await fs.rm(zipPath, { force: true });
+                resolve({ success: true });
+
+             } catch (validationErr) {
+                 reject(validationErr);
+             }
+          });
+        });
+      }).on('error', (err) => {
+        fs.unlink(zipPath).catch(()=>{});
+        reject(new Error(`[PluginUpdater] Network error: ${err.message}`));
+      });
+
+    } catch (err) {
+      reject(new Error(`[PluginUpdater] Preparation error: ${err.message}`));
+    }
+  });
+});
+
+ipcMain.handle('app-relaunch', () => {
+  console.log('[System] Restarting application due to plugin update...');
+  app.relaunch();
+  app.exit(0);
+});
+
+
 
 ipcMain.handle('move-items', async (event, { sourcePaths, targetPath }) => {
   // Move files/folders to targetPath

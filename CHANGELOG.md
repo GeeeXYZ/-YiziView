@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## v0.9.8
+
+✨ Features
+- Add PluginManager for dynamic electron plugin loading
+- Update ImageViewer and usePanelState for better rendering stability
+
+🧹 Cleanup
+- Remove obsolete legacy yizi-studio embedded plugin
+- Clean up workspace and ignored file handling
+
+---
+
+✨ 新特性
+- 增加 PluginManager 支持动态加载 Electron 插件
+- 优化 ImageViewer 及其状态钩子以保证渲染稳定性
+
+🧹 清理
+- 彻底移除旧版的内置 yizi-studio 等冗余插件代码
+- 清理多余的工作区与忽略文件
+
+
 ## v0.9.7
 
 ✨ Features

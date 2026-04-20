@@ -9,6 +9,7 @@
     "site:dev": "vite",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "build": "vite build && electron-builder",
+    "build:extra": "vite build && electron-builder --config build.extra.cjs",
     "preview": "vite preview",
     "lint": "eslint ."
   },

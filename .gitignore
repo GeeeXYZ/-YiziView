@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+
 # Debug & temp output
 *.txt
 !README.md

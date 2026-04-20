@@ -243,19 +243,29 @@ export const usePanelState = (panelId) => {
     // Navigation for viewer
     const handleNext = () => {
         if (viewingIndex !== null && viewingIndex < images.length - 1) {
-            const nextIdx = viewingIndex + 1;
-            setViewingIndex(nextIdx);
-            setSelectedIndices(new Set([nextIdx]));
-            setLastSelectedIndex(nextIdx);
+            let nextIdx = viewingIndex + 1;
+            while(nextIdx < images.length && images[nextIdx].isHeaderCard) {
+                nextIdx++;
+            }
+            if (nextIdx < images.length) {
+                setViewingIndex(nextIdx);
+                setSelectedIndices(new Set([nextIdx]));
+                setLastSelectedIndex(nextIdx);
+            }
         }
     };
 
     const handlePrev = () => {
         if (viewingIndex !== null && viewingIndex > 0) {
-            const prevIdx = viewingIndex - 1;
-            setViewingIndex(prevIdx);
-            setSelectedIndices(new Set([prevIdx]));
-            setLastSelectedIndex(prevIdx);
+            let prevIdx = viewingIndex - 1;
+            while(prevIdx >= 0 && images[prevIdx].isHeaderCard) {
+                prevIdx--;
+            }
+            if (prevIdx >= 0) {
+                setViewingIndex(prevIdx);
+                setSelectedIndices(new Set([prevIdx]));
+                setLastSelectedIndex(prevIdx);
+            }
         }
     };
 

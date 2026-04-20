@@ -1,6 +1,0 @@
-{
-    "name": "yizi-studio",
-    "version": "1.0.0",
-    "description": "Yizi Studio Pro Tools (Powered by Seedream AI)",
-    "renderer": "renderer.js"
-}

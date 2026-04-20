@@ -132,7 +132,16 @@ contextBridge.exposeInMainWorld('electron', {
             ipcRenderer.on('wx-login-phone', subscription);
             return () => ipcRenderer.removeListener('wx-login-phone', subscription);
         },
-        downloadPluginAsset: (url, outputPath) => ipcRenderer.invoke('plugin-download-asset', { url, outputPath })
+        downloadPluginAsset: (url, outputPath) => ipcRenderer.invoke('plugin-download-asset', { url, outputPath }),
+        
+        // OTA Updates
+        downloadStsPluginUpdate: (payload) => ipcRenderer.invoke('plugin-sts-update-download', payload),
+        onPluginUpdateProgress: (callback) => {
+            const subscription = (event, data) => callback(data);
+            ipcRenderer.on('plugin-update-progress', subscription);
+            return () => ipcRenderer.removeListener('plugin-update-progress', subscription);
+        },
+        relaunchApp: () => ipcRenderer.invoke('app-relaunch')
     },
     onPluginChanged: (callback) => {
         const subscription = () => callback();
