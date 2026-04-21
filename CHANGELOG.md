@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.9.9
+
+🐛 Fixes
+- Fix local plugin asset loading by directly reading files to bypass cache and MIME type issues
+
+---
+
+🐛 修复
+- 修复本地插件资源加载，通过直接读取文件来绕过缓存和 MIME 类型问题
+
+
 ## v0.9.8
 
 ✨ Features

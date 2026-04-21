@@ -101,7 +101,28 @@ class PluginManager {
                 return new Response('Access Denied', { status: 403 });
             }
 
-            return net.fetch(`file:///${absolutePath}`);
+            try {
+                const data = fs.readFileSync(absolutePath);
+                let mimeType = 'text/plain';
+                if (absolutePath.endsWith('.js') || absolutePath.endsWith('.mjs')) mimeType = 'text/javascript';
+                else if (absolutePath.endsWith('.css')) mimeType = 'text/css';
+                else if (absolutePath.endsWith('.json')) mimeType = 'application/json';
+                else if (absolutePath.endsWith('.svg')) mimeType = 'image/svg+xml';
+                else if (absolutePath.endsWith('.png')) mimeType = 'image/png';
+                else if (absolutePath.endsWith('.jpg') || absolutePath.endsWith('.jpeg')) mimeType = 'image/jpeg';
+                else if (absolutePath.endsWith('.html')) mimeType = 'text/html';
+
+                return new Response(data, {
+                    headers: {
+                        'Content-Type': mimeType,
+                        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
+            } catch (err) {
+                return new Response('Not Found', { status: 404 });
+            }
         });
 
         await this.scanPlugins();
