@@ -6,6 +6,7 @@ import ImageViewer from './ImageViewer';
 import BottomPanel from './BottomPanel';
 import SortControl from './SortControl';
 import { FileSystem } from '@/managers/FileSystem';
+import { useTranslation } from '../hooks/useTranslation';
 
 const CopyButton = ({ path }) => {
     const [copied, setCopied] = useState(false);
@@ -40,6 +41,7 @@ const Panel = ({
     const [locateTrigger, setLocateTrigger] = React.useState(0);
     const [isPanelMaximized, setIsPanelMaximized] = React.useState(false);
     const [remoteImage, setRemoteImage] = React.useState(null);
+    const { t } = useTranslation();
 
     const {
         currentFolder,
@@ -90,9 +92,9 @@ const Panel = ({
             executeDelete();
         } else {
             setConfirmModal({
-                title: 'Delete Image',
-                message: `Are you sure you want to move "${images[viewingIndex].name}" to the Recycle Bin?`,
-                confirmText: 'Move to Recycle Bin',
+                title: t('deleteImage'),
+                message: t('deleteImageConfirm', { name: images[viewingIndex].name }),
+                confirmText: t('moveToBin'),
                 confirmKind: 'danger',
                 onConfirm: async () => {
                     setConfirmModal(null);
@@ -256,7 +258,7 @@ const Panel = ({
                             }}
                             disabled={!panelState.canGoBack}
                             className={`px-2 rounded h-8 transition-colors flex items-center justify-center ${panelState.canGoBack ? 'text-gray-400 hover:bg-neutral-700/50 cursor-pointer' : 'text-neutral-700/50 cursor-not-allowed'}`}
-                            title="Go Back"
+                            title={t('goBack')}
                         >
                             <ChevronLeft size={20} strokeWidth={2.5} />
                         </button>
@@ -270,12 +272,12 @@ const Panel = ({
                                     setLocateTrigger(prev => prev + 1);
                                 }}
                                 className="text-gray-500 hover:text-white p-1 rounded transition-colors"
-                                title="Locate in Tree"
+                                title={t('locateTree')}
                             >
                                 <Crosshair size={14} />
                             </button>
                         )}
-                        <span>{currentFolder ? (currentFolder.length > 60 ? '...' + currentFolder.slice(-60) : currentFolder) : `Panel ${panelId}`}</span>
+                        <span>{currentFolder ? (currentFolder.length > 60 ? '...' + currentFolder.slice(-60) : currentFolder) : `${t('panel')} ${panelId}`}</span>
                         {currentFolder && currentFolder !== 'Favorites' && !currentFolder.startsWith('Tag: ') && !currentFolder.startsWith('Tags ') && (
                             <CopyButton path={currentFolder} />
                         )}
@@ -286,7 +288,7 @@ const Panel = ({
                         <button
                             onClick={() => panelState.setIsRecursive(prev => !prev)}
                             className={`px-2 rounded h-8 transition-colors flex items-center justify-center ${panelState.isRecursive ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-neutral-700/50 text-gray-400'}`}
-                            title="Penetration Browse (Include Subfolders)"
+                            title={t('penetrationBrowse')}
                         >
                             <Layers size={16} />
                         </button>
@@ -302,7 +304,7 @@ const Panel = ({
                     {/* Grid - Scrollable */}
                     {loading ? (
                         <div className="flex items-center justify-center h-full text-gray-500">
-                            Loading...
+                            {t('loading')}
                         </div>
                     ) : (
                         <div className="absolute inset-0 flex flex-col min-w-0 bg-black/40 overflow-y-auto">
@@ -321,8 +323,8 @@ const Panel = ({
                         </div>
                     )}
 
-                    {/* Bottom Panel (Fixed Overlay) — hidden when panel is maximized */}
-                    {!loading && !isPanelMaximized && (
+                    {/* Bottom Panel (Fixed Overlay) — hidden when viewing image (fullscreen or maximized) */}
+                    {!loading && !isPanelMaximized && viewingIndex === null && (
                         <BottomPanel
                             isActive={isActive}
                             selectedIndices={selectedIndices}

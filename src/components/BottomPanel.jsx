@@ -1,10 +1,11 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ConfigManager } from '../managers/ConfigManager';
 import { FileSystem } from '../managers/FileSystem';
 import { X, FileText, Copy, Tag, Palette, Eraser, Maximize } from 'lucide-react';
+import { useTranslation } from '../hooks/useTranslation';
 
 const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, aspectRatio, setAspectRatio, isViewing = false, onPanelMaximize }) => {
+    const { t } = useTranslation();
     const [commonTags, setCommonTags] = useState([]);
     const [loadingTags, setLoadingTags] = useState(false);
 
@@ -17,16 +18,23 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
     const [resolution, setResolution] = useState(null);
 
     useEffect(() => {
-        setResolution(null);
+        let isCancelled = false;
         if (selectedIndices && selectedIndices.size === 1) {
             const index = Array.from(selectedIndices)[0];
             const image = images[index];
             if (image && image.url) {
                 const img = new Image();
-                img.onload = () => setResolution(`${img.naturalWidth} × ${img.naturalHeight}`);
+                img.onload = () => {
+                    if (!isCancelled) setResolution(`${img.naturalWidth} × ${img.naturalHeight}`);
+                };
                 img.src = image.url;
+            } else {
+                setResolution(null);
             }
+        } else {
+            setResolution(null);
         }
+        return () => { isCancelled = true; };
     }, [selectedIndices, images]);
 
     // Color Tag State
@@ -125,23 +133,35 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
         }
     };
 
+    const activePromptPathRef = useRef(null);
+
     const loadPrompts = async () => {
-        setPrompts({ positive: '', negative: '', type: null });
+        // Do NOT eagerly clear `prompts` here. Eager clearing causes the entire Prompt Button area to flash.
         setShowPrompts(false);
 
-        // Only load prompts if exactly one image is selected
-        if (!selectedIndices || selectedIndices.size !== 1) return;
+        if (!selectedIndices || selectedIndices.size !== 1) {
+            setPrompts({ positive: '', negative: '', type: null });
+            activePromptPathRef.current = null;
+            return;
+        }
 
         setLoadingPrompts(true);
         try {
             const index = Array.from(selectedIndices)[0];
             const image = images[index];
-            if (!image) return;
+            if (!image) {
+                setPrompts({ positive: '', negative: '', type: null });
+                activePromptPathRef.current = null;
+                return;
+            }
 
-            const metadata = await FileSystem.readImageMetadata(image.path);
+            const reqPath = image.path;
+            activePromptPathRef.current = reqPath;
 
+            const metadata = await FileSystem.readImageMetadata(reqPath);
+            if (activePromptPathRef.current !== reqPath) return;
 
-
+            let newPrompts = { positive: '', negative: '', type: null };
             // 1. Try A1111 / Parameters
             if (metadata.parameters) {
                 const text = metadata.parameters;
@@ -164,22 +184,19 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                         pos = text.substring(0, stepsIndex).trim();
                     }
                 }
-                setPrompts({ positive: pos, negative: neg, type: 'a1111' });
+                newPrompts = { positive: pos, negative: neg, type: 'a1111' };
             }
             // 2. Try ComfyUI Prompt (Regular or API Format)
             else if (metadata.prompt || metadata.prompt_parsed) {
                 // If prompt_parsed exists (from our backend helper), use it directly if possible
                 if (metadata.prompt_parsed && !metadata.positive) {
-                    setPrompts({
+                    newPrompts = {
                         positive: metadata.prompt_parsed, // It puts everything in positive currently
                         negative: '',
                         type: 'comfy'
-                    });
-                    return;
-                }
+                    };
+                } else if (metadata.prompt) {
 
-                // Fallback to existing detailed parser for normal 'prompt'
-                if (metadata.prompt) {
                     try {
                         const sanitizedPrompt = metadata.prompt.replace(/:\s*NaN/g, ': null').replace(/\[\s*NaN\s*\]/g, '[null]').replace(/,\s*NaN\s*\]/g, ', null]').replace(/\[\s*NaN\s*,/g, '[null,');
                         const json = JSON.parse(sanitizedPrompt);
@@ -259,27 +276,34 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                             }
                         }
                         if (foundPos.size > 0 || foundNeg.size > 0) {
-                            setPrompts({
+                            newPrompts = {
                                 positive: Array.from(foundPos).join('\n\n'),
                                 negative: Array.from(foundNeg).join('\n\n'),
                                 type: 'comfy'
-                            });
+                            };
                         }
                     } catch (e) {
                         // JSON Parse failed, fallback to prompt_parsed
                         if (metadata.prompt_parsed) {
-                            setPrompts({
+                            newPrompts = {
                                 positive: metadata.prompt_parsed,
                                 negative: '',
                                 type: 'comfy'
-                            });
+                            };
                         }
                         console.error('Failed to parse ComfyUI prompt JSON:', e);
                     }
                 }
             }
+
+            if (activePromptPathRef.current === reqPath) {
+                setPrompts(newPrompts);
+            }
         } catch (error) {
             console.error('Failed to load prompts:', error);
+            if (activePromptPathRef.current === image?.path) {
+                setPrompts({ positive: '', negative: '', type: null });
+            }
         } finally {
             setLoadingPrompts(false);
         }
@@ -326,11 +350,11 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                     {prompts.positive && (
                         <div className="mb-3">
                             <div className="flex items-center justify-between mb-1">
-                                <h4 className="text-xs font-bold text-green-400 uppercase tracking-wider">Prompt</h4>
+                                <h4 className="text-xs font-bold text-green-400 uppercase tracking-wider">{t('promptTitle')}</h4>
                                 <button
                                     onClick={() => navigator.clipboard.writeText(prompts.positive)}
                                     className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
-                                    title="Copy Positive Prompt"
+                                    title={t('copyPosPrompt')}
                                 >
                                     <Copy size={12} />
                                 </button>
@@ -341,11 +365,11 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                     {prompts.negative && (
                         <div>
                             <div className="flex items-center justify-between mb-1">
-                                <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider">Negative Prompt</h4>
+                                <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider">{t('negPromptTitle')}</h4>
                                 <button
                                     onClick={() => navigator.clipboard.writeText(prompts.negative)}
                                     className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
-                                    title="Copy Negative Prompt"
+                                    title={t('copyNegPrompt')}
                                 >
                                     <Copy size={12} />
                                 </button>
@@ -354,7 +378,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                         </div>
                     )}
                     <div className="mt-2 text-[10px] text-gray-600 uppercase text-right">
-                        Source: {prompts.type === 'a1111' ? 'Parameters' : 'ComfyUI Metadata'}
+                        {t('promptSource')}: {prompts.type === 'a1111' ? t('sourceParams') : t('sourceComfy')}
                     </div>
                 </div>
             )}
@@ -365,7 +389,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                     <>
                         {!isViewing && (
                             <div className={`text-gray-400 text-xs font-medium flex items-center gap-2 ${(loadingTags || commonTags.length > 0) ? 'border-r border-neutral-700 pr-4' : ''}`}>
-                                <span>{selectedIndices.size} Selected</span>
+                                <span>{selectedIndices.size} {t('selected')}</span>
                                 {selectedIndices.size === 1 && resolution && (
                                     <span className="text-[10px] text-gray-500 bg-neutral-800 px-1.5 py-0.5 rounded shadow-inner tracking-wider font-mono">{resolution}</span>
                                 )}
@@ -373,7 +397,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                         )}
 
                         {loadingTags ? (
-                            <div className="text-gray-500 text-xs text-center min-w-[60px]">Loading...</div>
+                            <div className="text-gray-500 text-xs text-center min-w-[60px]">{t('loading')}</div>
                         ) : commonTags.length > 0 && (
                             <div className="flex items-center gap-2">
                                 {commonTags.slice(0, 5).map(tag => (
@@ -382,7 +406,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                                         <button
                                             onClick={() => handleRemoveTag(tag)}
                                             className="text-gray-500 hover:text-red-400 focus:outline-none flex items-center"
-                                            title="Remove Tag"
+                                            title={t('removeTag')}
                                         >
                                             <X size={10} />
                                         </button>
@@ -398,7 +422,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
 
                 {!hasSelection && !isViewing && (
                     <div className="text-gray-500 text-xs italic">
-                        No selection
+                        {t('noSelection')}
                     </div>
                 )}
 
@@ -410,7 +434,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                             <button
                                 onClick={handleToggleColorTag}
                                 className={`p-1.5 rounded-md transition-all flex items-center justify-center w-8 h-8 ${showColorTag ? 'bg-neutral-800 text-gray-200 border border-neutral-600 shadow-inner' : 'text-gray-500 hover:text-gray-300 hover:bg-neutral-800 border border-transparent'}`}
-                                title="Toggle Color Tags"
+                                title={t('toggleColorTags')}
                             >
                                 <Palette size={14} />
                             </button>
@@ -434,7 +458,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                                     <button
                                         onClick={handleClearAllColorTags}
                                         className="text-gray-500 hover:text-red-400 p-1 rounded-md transition-colors border border-transparent hover:border-neutral-700 hover:bg-neutral-800"
-                                        title="Clear color tags from all images in view"
+                                        title={t('clearColorTags')}
                                     >
                                         <Eraser size={14} />
                                     </button>
@@ -476,7 +500,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                                 <button
                                     onClick={() => onPanelMaximize && onPanelMaximize(Array.from(selectedIndices)[0])}
                                     className="p-1.5 rounded-md transition-colors text-gray-500 hover:text-gray-300 hover:bg-neutral-800"
-                                    title="Maximize in Panel"
+                                    title={t('maximizeInPanel')}
                                 >
                                     <Maximize size={16} />
                                 </button>
@@ -507,7 +531,7 @@ const BottomPanel = ({ isActive = false, selectedIndices, images, onTagsChange, 
                             className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${showPrompts ? 'text-blue-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             <FileText size={14} />
-                            {showPrompts ? 'Hide' : <span><u className="underline-offset-2">P</u>rompt</span>}
+                            {showPrompts ? t('hideBtn') : <span><u className="underline-offset-2">P</u>rompt</span>}
                         </button>
                     </div>
                 )}

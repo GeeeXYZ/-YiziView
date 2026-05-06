@@ -207,15 +207,27 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     if (!document.fullscreenElement) {
                         await document.documentElement.requestFullscreen();
                     }
-                } catch(e) { console.error('Fullscreen request failed', e); }
+                    if (navigator.keyboard && navigator.keyboard.lock) {
+                        // Prevent Escape from natively exiting fullscreen globally so JS can handle the unmount atomically
+                        navigator.keyboard.lock(['Escape']).catch(e => console.warn('Keyboard lock failed:', e));
+                    }
+                } catch(e) {
+                    if (e && e.message && !e.message.includes('Permissions check failed')) {
+                        console.error('Fullscreen request failed', e);
+                    }
+                }
             };
             enterFullscreen();
 
             const handleFullscreenChange = () => {
                 if (!document.fullscreenElement) {
-                    // Browser native exit fullscreen (Esc)
+                    // Browser native exit fullscreen (e.g. F11). 
                     if (!isEditingRef.current) {
                         onCloseRef.current();
+                    }
+                } else {
+                    if (navigator.keyboard && navigator.keyboard.lock) {
+                        navigator.keyboard.lock(['Escape']).catch(e => console.warn('Keyboard lock failed:', e));
                     }
                 }
             };
@@ -223,6 +235,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
             return () => {
                 document.removeEventListener('fullscreenchange', handleFullscreenChange);
+                if (navigator.keyboard && navigator.keyboard.unlock) {
+                    navigator.keyboard.unlock();
+                }
                 if (document.fullscreenElement) {
                     document.exitFullscreen().catch(e => {});
                 }
@@ -245,6 +260,20 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         }
         return image.url;
     };
+
+    // ===== Resolution Info =====
+    const [resolution, setResolution] = useState(null);
+    useEffect(() => {
+        if (image) {
+            setResolution(null);
+            const imgUrl = getActiveUrl();
+            if (imgUrl && !isVideo) {
+                const img = new Image();
+                img.onload = () => setResolution(`${img.naturalWidth} × ${img.naturalHeight}`);
+                img.src = imgUrl;
+            }
+        }
+    }, [image, forceImageUrl, isVideo]);
 
     // ===== Favorites =====
     useEffect(() => {
@@ -298,8 +327,12 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (isSaving) return;
+            
             // Don't intercept keys when typing in an input/textarea
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const isTextInput = e.target.tagName === 'TEXTAREA' || 
+                               (e.target.tagName === 'INPUT' && !['color', 'range', 'checkbox', 'button'].includes(e.target.type));
+            
+            if (isTextInput && e.key !== 'Escape') return;
 
             // Space → toggle autoplay (only when not editing)
             if (e.key === ' ' || e.code === 'Space') {
@@ -312,6 +345,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
             if (e.key === 'Escape') {
                 if (isEditing) {
+                    e.preventDefault();
                     cancelEdit();
                 } else {
                     onClose();
@@ -345,7 +379,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             }
 
             // Edit tool shortcuts (when toolbar is shown)
-            if (showToolbar && !isEditing) {
+            if (showToolbar) {
                 if (e.key.toLowerCase() === 'c') { e.preventDefault(); switchTool('crop'); return; }
                 if (e.key.toLowerCase() === 'b') { e.preventDefault(); switchTool('brush'); return; }
                 if (e.key.toLowerCase() === 'a') { e.preventDefault(); switchTool('adjust'); return; }
@@ -358,7 +392,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             }
 
             // Undo for brush: Ctrl+Z
-            if (isEditing && editTool === 'brush' && (e.ctrlKey || e.metaKey) && e.key === 'z') {
+            if (isEditing && editTool === 'brush' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
                 e.preventDefault();
                 undoBrush();
                 return;
@@ -413,9 +447,9 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         drawHistoryRef.current = [];
     }, [image]);
 
-    // ===== Rotation Canvas (for crop tool) =====
+    // ===== Unified Base Canvas Loader =====
     useEffect(() => {
-        if (!isEditing || editTool !== 'crop') return;
+        if (!isEditing) return;
 
         const img = new Image();
         img.crossOrigin = 'anonymous';
@@ -423,50 +457,62 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             baseImageRef.current = img;
             drawRotatedCanvas();
             setTimeout(() => {
-                if (!imgRef.current || !imgRef.current.parentElement) return;
-                const pCrop = percentCropRef.current;
-                const needsInit = !pCrop || pCrop.width === 0 || (pCrop.width === 100 && pCrop.height === 100 && pCrop.x === 0 && pCrop.y === 0);
-                
-                if (needsInit) {
-                    const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-                    const imgRect = imgRef.current.getBoundingClientRect();
-                    
-                    let initWidthPx = imgRect.width;
-                    let initHeightPx = imgRect.height;
-                    
-                    let pxCrop;
-                    if (aspect) {
-                        initWidthPx = imgRect.width * 0.9;
-                        if (initWidthPx / aspect > imgRect.height) initWidthPx = imgRect.height * aspect;
-                        pxCrop = centerCrop(
-                            makeAspectCrop({ unit: 'px', width: initWidthPx }, aspect, wrapperRect.width, wrapperRect.height),
-                            wrapperRect.width, wrapperRect.height
-                        );
-                    } else {
-                        pxCrop = {
-                            x: imgRect.left - wrapperRect.left,
-                            y: imgRect.top - wrapperRect.top,
-                            width: initWidthPx,
-                            height: initHeightPx
-                        };
-                    }
-                    
-                    const newPercentCrop = {
-                        unit: '%',
-                        x: (pxCrop.x / wrapperRect.width) * 100,
-                        y: (pxCrop.y / wrapperRect.height) * 100,
-                        width: (pxCrop.width / wrapperRect.width) * 100,
-                        height: (pxCrop.height / wrapperRect.height) * 100
-                    };
-                    setCrop(newPercentCrop);
-                    setCompletedCrop(pxCrop);
-                    percentCropRef.current = newPercentCrop;
-                }
+                if (editTool === 'brush') setupDrawCanvas();
             }, 50);
         };
         img.onerror = () => console.error('Failed to load image for rotation');
         img.src = previewObjectURL || getActiveUrl();
-    }, [isEditing, editTool, image, forceImageUrl, previewObjectURL]);
+    }, [isEditing, image, forceImageUrl, previewObjectURL, editTool]);
+
+    // ===== Crop Box Initialization =====
+    useEffect(() => {
+        if (!isEditing || editTool !== 'crop') return;
+        
+        const initTimer = setTimeout(() => {
+            if (!imgRef.current || !imgRef.current.parentElement) return;
+            const pCrop = percentCropRef.current;
+            const needsInit = !pCrop || pCrop.width === 0 || (pCrop.width === 100 && pCrop.height === 100 && pCrop.x === 0 && pCrop.y === 0);
+            
+            if (needsInit) {
+                const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+                const imgRect = imgRef.current.getBoundingClientRect();
+                if (imgRect.width === 0 || wrapperRect.width === 0) return;
+                
+                let initWidthPx = imgRect.width;
+                let initHeightPx = imgRect.height;
+                
+                let pxCrop;
+                if (aspect) {
+                    initWidthPx = imgRect.width * 0.9;
+                    if (initWidthPx / aspect > imgRect.height) initWidthPx = imgRect.height * aspect;
+                    pxCrop = centerCrop(
+                        makeAspectCrop({ unit: 'px', width: initWidthPx }, aspect, wrapperRect.width, wrapperRect.height),
+                        wrapperRect.width, wrapperRect.height
+                    );
+                } else {
+                    pxCrop = {
+                        x: imgRect.left - wrapperRect.left,
+                        y: imgRect.top - wrapperRect.top,
+                        width: initWidthPx,
+                        height: initHeightPx
+                    };
+                }
+                
+                const newPercentCrop = {
+                    unit: '%',
+                    x: (pxCrop.x / wrapperRect.width) * 100,
+                    y: (pxCrop.y / wrapperRect.height) * 100,
+                    width: (pxCrop.width / wrapperRect.width) * 100,
+                    height: (pxCrop.height / wrapperRect.height) * 100
+                };
+                setCrop(newPercentCrop);
+                setCompletedCrop(pxCrop);
+                percentCropRef.current = newPercentCrop;
+            }
+        }, 150);
+        return () => clearTimeout(initTimer);
+    }, [isEditing, editTool, aspect]);
+
 
     const drawRotatedCanvas = () => {
         if (!baseImageRef.current || !imgRef.current) return;
@@ -572,16 +618,25 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         if (!canvas) return;
         const parent = canvas.parentElement;
         if (!parent) return;
-        const imgEl = parent.querySelector('img');
+        const imgEl = parent.querySelector('img') || parent.querySelector('canvas:not([style*="pointer-events: auto"])');
         if (!imgEl) return;
+
+        let naturalWidth, naturalHeight;
+        if (imgEl.tagName === 'IMG') {
+            naturalWidth = imgEl.naturalWidth;
+            naturalHeight = imgEl.naturalHeight;
+        } else if (imgEl.tagName === 'CANVAS') {
+            naturalWidth = imgEl.width;
+            naturalHeight = imgEl.height;
+        }
 
         // Use client width/height instead of getBoundingClientRect() to ignore CSS transform scale
         const renderWidth = imgEl.clientWidth;
         const renderHeight = imgEl.clientHeight;
         
-        if (renderWidth === 0 || renderHeight === 0 || !imgEl.naturalWidth) return;
+        if (renderWidth === 0 || renderHeight === 0 || !naturalWidth) return;
 
-        const naturalRatio = imgEl.naturalWidth / imgEl.naturalHeight;
+        const naturalRatio = naturalWidth / naturalHeight;
         const renderRatio = renderWidth / renderHeight;
 
         let actualWidth, actualHeight;
@@ -874,6 +929,46 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         }
     };
 
+    // Compute the effective aspect ratio: named preset takes priority,
+    // otherwise if both W and H are filled in Free mode, derive from them.
+    const freeW = parseInt(targetW);
+    const freeH = parseInt(targetH);
+    const effectiveAspect = aspect ? aspect
+        : (!isNaN(freeW) && freeW > 0 && !isNaN(freeH) && freeH > 0) ? freeW / freeH
+        : undefined;
+
+    const applyFreeCropRatio = (w, h) => {
+        // In Free mode with both dimensions set, reshape the crop box to match w:h ratio
+        if (aspect || !imgRef.current || !imgRef.current.parentElement) return;
+        if (!w || !h || w <= 0 || h <= 0) return;
+        const ratio = w / h;
+        const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+        const imgRect = imgRef.current.getBoundingClientRect();
+        let initWidthPx = imgRect.width * 0.9;
+        if (initWidthPx / ratio > imgRect.height) initWidthPx = imgRect.height * ratio;
+        const pxCrop = centerCrop(
+            makeAspectCrop({ unit: 'px', width: initWidthPx }, ratio, wrapperRect.width, wrapperRect.height),
+            wrapperRect.width, wrapperRect.height
+        );
+        const newPercentCrop = {
+            unit: '%',
+            x: (pxCrop.x / wrapperRect.width) * 100,
+            y: (pxCrop.y / wrapperRect.height) * 100,
+            width: (pxCrop.width / wrapperRect.width) * 100,
+            height: (pxCrop.height / wrapperRect.height) * 100
+        };
+        setCrop(newPercentCrop);
+        setCompletedCrop(pxCrop);
+        percentCropRef.current = newPercentCrop;
+    };
+
+    const clearTargetDimensions = () => {
+        setTargetW('');
+        setTargetH('');
+        localStorage.removeItem('last_crop_target_w');
+        localStorage.removeItem('last_crop_target_h');
+    };
+
     const handleTargetWChange = (e) => {
         const val = e.target.value;
         setTargetW(val);
@@ -884,6 +979,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 const newH = Math.round(w / aspect).toString();
                 setTargetH(newH);
                 localStorage.setItem('last_crop_target_h', newH);
+            } else {
+                // Free mode: reshape crop box if H is also filled in
+                const h = parseInt(targetH);
+                applyFreeCropRatio(w, h);
             }
         } else if (val === '') {
             localStorage.removeItem('last_crop_target_w');
@@ -900,6 +999,10 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 const newW = Math.round(h * aspect).toString();
                 setTargetW(newW);
                 localStorage.setItem('last_crop_target_w', newW);
+            } else {
+                // Free mode: reshape crop box if W is also filled in
+                const w = parseInt(targetW);
+                applyFreeCropRatio(w, h);
             }
         } else if (val === '') {
             localStorage.removeItem('last_crop_target_h');
@@ -1082,20 +1185,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                         fullImg.src = getActiveUrl();
                     });
 
-                    // Step 1: Draw original + brush strokes (and apply adjustments if any)
+                    // Step 1: Draw original (and apply adjustments if any)
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = fullImg.naturalWidth;
                     tempCanvas.height = fullImg.naturalHeight;
                     const tmpCtx = tempCanvas.getContext('2d');
                     
                     renderBaseAndAdjustments(tmpCtx, fullImg);
-
-                    if (hasDrawing) {
-                        const drawCanvas = drawCanvasRef.current;
-                        if (drawCanvas && drawCanvas.width > 0) {
-                            tmpCtx.drawImage(drawCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
-                        }
-                    }
 
                     // Step 2: Apply rotation
                     const rot = ((rotation % 360) + 360) % 360;
@@ -1113,6 +1209,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     rCtx.translate(rw / 2, rh / 2);
                     rCtx.rotate(rad);
                     rCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
+
+                    // Step 3: Composite Brush Strokes (post-rotation)
+                    if (hasDrawing) {
+                        const drawCanvas = drawCanvasRef.current;
+                        if (drawCanvas && drawCanvas.width > 0) {
+                            rCtx.drawImage(drawCanvas, 0, 0, rotCanvas.width, rotCanvas.height);
+                        }
+                    }
 
                     // Use uniform scaling: pick a single scale factor based on the
                     // requested target dimension to avoid stretching.
@@ -1176,13 +1280,25 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             onClick={onClose}
             tabIndex={-1}
         >
+            {/* Top Left Info (File Name & Resolution) */}
+            <div className={`absolute top-6 left-6 flex items-center gap-3 z-[60] no-drag ${contained ? '' : 'backdrop-blur-md bg-black/30 px-4 py-1.5 rounded-full border border-white/10'}`}>
+                <div className="text-gray-300 text-xs font-medium max-w-[300px] truncate" title={image.name || image.path}>
+                    {image.name || (image.path ? image.path.split(/[\\/]/).pop() : 'Unknown Image')}
+                </div>
+                {resolution && (
+                    <span className="text-[10px] text-gray-500 bg-black/50 px-2 py-0.5 rounded shadow-inner tracking-wider shrink-0 font-mono hidden sm:block">
+                        {resolution}
+                    </span>
+                )}
+            </div>
+
             {/* Top Bar Controls */}
             <div className={`absolute top-6 right-6 flex items-center justify-end gap-2 z-[60] no-drag ${contained ? '' : 'backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full border border-white/10'}`}>
                 {/* AutoPlay */}
                 <button
                     onClick={(e) => { e.stopPropagation(); setIsAutoPlay(!isAutoPlay); }}
                     className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isAutoPlay ? 'text-blue-400 drop-shadow-none bg-black/60' : 'text-white/80 hover:text-white'}`}
-                    title={isAutoPlay ? "Stop AutoPlay" : "Start AutoPlay"}
+                    title={isAutoPlay ? "停止自动播放" : "自动播放"}
                 >
                     {isAutoPlay ? (
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
@@ -1196,7 +1312,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     <button
                         onClick={toggleToolbar}
                         className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${!showToolbar ? 'text-gray-400' : 'text-white/80 hover:text-white'}`}
-                        title={showToolbar ? "Hide Toolbar" : "Show Toolbar"}
+                        title={showToolbar ? "隐藏工具栏" : "显示工具栏"}
                     >
                         {showToolbar ? <Eye className="h-5 w-5" strokeWidth={2} /> : <EyeOff className="h-5 w-5" strokeWidth={2} />}
                     </button>
@@ -1206,7 +1322,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 <button
                     onClick={toggleFavorite}
                     className={`p-2 rounded-full hover:bg-black/50 transition-all flex items-center justify-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isFav ? 'text-[#A61616] drop-shadow-none' : 'text-white/80 hover:text-white'}`}
-                    title={isFav ? "Unfavorite" : "Favorite"}
+                    title={isFav ? "取消收藏" : "收藏"}
                 >
                     <Heart className="h-5 w-5" fill={isFav ? "currentColor" : "none"} strokeWidth={2} />
                 </button>
@@ -1218,7 +1334,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 <button
                     onClick={(e) => { e.stopPropagation(); onClose(); setIsAutoPlay(false); }}
                     className="text-white/80 hover:text-red-500 hover:bg-red-500/20 p-2 rounded-full transition-all drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
-                    title="Close (Esc)"
+                    title="关闭 (Esc)"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -1286,103 +1402,110 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                             window.addEventListener('pointerup', handlePointerUp);
                         }}
                     >
-                        {isEditing && editTool === 'crop' ? (
-                            <ReactCrop
-                                crop={crop}
-                                onChange={(c, percentCrop) => {
-                                    if (imgRef.current && imgRef.current.parentElement) {
-                                        // Snapping logic to the actual image boundaries
-                                        const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-                                        const imgRect = imgRef.current.getBoundingClientRect();
-                                        
-                                        // Image bounds relative to wrapper
-                                        const imgLeft = ((imgRect.left - wrapperRect.left) / wrapperRect.width) * 100;
-                                        const imgTop = ((imgRect.top - wrapperRect.top) / wrapperRect.height) * 100;
-                                        const imgWidth = (imgRect.width / wrapperRect.width) * 100;
-                                        const imgHeight = (imgRect.height / wrapperRect.height) * 100;
-                                        const imgRight = imgLeft + imgWidth;
-                                        const imgBottom = imgTop + imgHeight;
-
-                                        let newP = { ...percentCrop };
-                                        const snapThresholdPx = 10;
-                                        const snapThresholdX = (snapThresholdPx / wrapperRect.width) * 100; // ~10px in %
-                                        const snapThresholdY = (snapThresholdPx / wrapperRect.height) * 100;
-
-                                        const prevP = percentCropRef.current;
-                                        const isTranslating = prevP && 
-                                            Math.abs(prevP.width - newP.width) < 0.001 && 
-                                            Math.abs(prevP.height - newP.height) < 0.001;
-
-                                        if (isTranslating) {
-                                            // Handle snapping when the entire crop box is being moved (translated)
-                                            if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
-                                                newP.x = imgLeft;
-                                            } else if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
-                                                newP.x = imgRight - newP.width;
-                                            }
+                        {isEditing ? (
+                            <div className="relative flex items-center justify-center pointer-events-auto" style={{
+                                maxWidth: 'calc(100vw - 4rem)',
+                                maxHeight: 'calc(100vh - 12rem)',
+                                width: '100%',
+                                height: '100%',
+                                padding: '1rem'
+                            }}>
+                                <ReactCrop
+                                    crop={crop}
+                                    disabled={editTool !== 'crop'}
+                                    locked={editTool !== 'crop'}
+                                    onChange={(c, percentCrop) => {
+                                        if (imgRef.current && imgRef.current.parentElement) {
+                                            // Snapping logic to the actual image boundaries
+                                            const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
+                                            const imgRect = imgRef.current.getBoundingClientRect();
                                             
-                                            if (Math.abs(newP.y - imgTop) < snapThresholdY) {
-                                                newP.y = imgTop;
-                                            } else if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
-                                                newP.y = imgBottom - newP.height;
+                                            // Image bounds relative to wrapper
+                                            const imgLeft = ((imgRect.left - wrapperRect.left) / wrapperRect.width) * 100;
+                                            const imgTop = ((imgRect.top - wrapperRect.top) / wrapperRect.height) * 100;
+                                            const imgWidth = (imgRect.width / wrapperRect.width) * 100;
+                                            const imgHeight = (imgRect.height / wrapperRect.height) * 100;
+                                            const imgRight = imgLeft + imgWidth;
+                                            const imgBottom = imgTop + imgHeight;
+
+                                            let newP = { ...percentCrop };
+                                            const snapThresholdPx = 10;
+                                            const snapThresholdX = (snapThresholdPx / wrapperRect.width) * 100;
+                                            const snapThresholdY = (snapThresholdPx / wrapperRect.height) * 100;
+
+                                            const prevP = percentCropRef.current;
+                                            const isTranslating = prevP && 
+                                                Math.abs(prevP.width - newP.width) < 0.001 && 
+                                                Math.abs(prevP.height - newP.height) < 0.001;
+
+                                            if (isTranslating) {
+                                                if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
+                                                    newP.x = imgLeft;
+                                                } else if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
+                                                    newP.x = imgRight - newP.width;
+                                                }
+                                                if (Math.abs(newP.y - imgTop) < snapThresholdY) {
+                                                    newP.y = imgTop;
+                                                } else if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
+                                                    newP.y = imgBottom - newP.height;
+                                                }
+                                            } else if (!aspect) {
+                                                if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
+                                                    newP.width += (newP.x - imgLeft);
+                                                    newP.x = imgLeft;
+                                                }
+                                                if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
+                                                    newP.width = imgRight - newP.x;
+                                                }
+                                                if (Math.abs(newP.y - imgTop) < snapThresholdY) {
+                                                    newP.height += (newP.y - imgTop);
+                                                    newP.y = imgTop;
+                                                }
+                                                if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
+                                                    newP.height = imgBottom - newP.y;
+                                                }
                                             }
-                                        } else if (!aspect) {
-                                            // Free resizing: We independently snap the edges being dragged.
-                                            // Snap left
-                                            if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
-                                                newP.width += (newP.x - imgLeft);
-                                                newP.x = imgLeft;
-                                            }
-                                            // Snap right
-                                            if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
-                                                newP.width = imgRight - newP.x;
-                                            }
-                                            // Snap top
-                                            if (Math.abs(newP.y - imgTop) < snapThresholdY) {
-                                                newP.height += (newP.y - imgTop);
-                                                newP.y = imgTop;
-                                            }
-                                            // Snap bottom
-                                            if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
-                                                newP.height = imgBottom - newP.y;
-                                            }
+                                            setCrop(newP);
+                                            percentCropRef.current = newP;
+                                        } else {
+                                            setCrop(percentCrop);
+                                            percentCropRef.current = percentCrop;
                                         }
-                                        
-                                        // Also restrict from going too far beyond padding if needed, but react-image-crop does that
-                                        setCrop(newP);
-                                        percentCropRef.current = newP;
-                                    } else {
-                                        setCrop(percentCrop);
-                                        percentCropRef.current = percentCrop;
-                                    }
-                                }}
-                                onComplete={(c, percentCrop) => {
-                                    setCompletedCrop(c);
-                                    // Make sure percentCrop is updated to the snapped version we might have set
-                                    percentCropRef.current = crop || percentCrop;
-                                }}
-                                aspect={aspect}
-                                style={{ display: 'flex', maxWidth: '100vw', maxHeight: '100vh' }}
-                            >
-                                <div style={{ 
-                                    padding: '15vh 15vw', 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center',
-                                    width: '100%',
-                                    height: '100%'
-                                }}>
-                                    <canvas
-                                        ref={imgRef}
-                                        style={{ 
-                                            maxHeight: '70vh', 
-                                            maxWidth: '70vw',
-                                            objectFit: 'contain'
-                                        }}
-                                        className="select-none block shadow-[0_0_20px_rgba(0,0,0,0.5)]"
-                                    />
-                                </div>
-                            </ReactCrop>
+                                    }}
+                                    onComplete={(c, percentCrop) => {
+                                        setCompletedCrop(c);
+                                        percentCropRef.current = crop || percentCrop;
+                                    }}
+                                    aspect={effectiveAspect}
+                                    style={{ 
+                                        display: 'flex', 
+                                        maxWidth: '100%', 
+                                        maxHeight: '100%',
+                                        pointerEvents: editTool === 'crop' ? 'auto' : 'none'
+                                    }}
+                                >
+                                    <div className="relative" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+                                        <canvas
+                                            ref={imgRef}
+                                            style={{ 
+                                                maxHeight: '100%', 
+                                                maxWidth: '100%',
+                                                objectFit: 'contain',
+                                                boxShadow: '0 0 20px rgba(0,0,0,0.5)'
+                                            }}
+                                            className="select-none block"
+                                        />
+                                        {editTool === 'brush' && (
+                                            <canvas
+                                                ref={drawCanvasRef}
+                                                className="absolute inset-0"
+                                                style={{ cursor: isEraser ? 'cell' : 'crosshair', pointerEvents: 'auto', width: '100%', height: '100%' }}
+                                                onPointerDown={handleDrawStart}
+                                            />
+                                        )}
+                                    </div>
+                                </ReactCrop>
+                            </div>
                         ) : (
                             <div className="relative w-full h-full flex items-center justify-center">
                                 {(() => {
@@ -1397,26 +1520,16 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                             src={previewObjectURL || getActiveUrl()}
                                             alt={image.name}
                                             style={{
-                                                maxWidth: (isEditing && editTool !== 'adjust') ? 'calc(100vw - 4rem)' : '100vw',
-                                                maxHeight: (isEditing && editTool !== 'adjust') ? 'calc(100vh - 12rem)' : '100vh',
+                                                maxWidth: '100vw',
+                                                maxHeight: '100vh',
                                                 width: '100%',
                                                 height: '100%',
                                                 filter: hasAdvanced ? 'none' : `brightness(${adjustBrightness}%) contrast(${adjustContrast}%) saturate(${adjustSaturation}%) hue-rotate(${adjustHue}deg)`
                                             }}
                                             className="object-contain select-none block"
-                                            onLoad={isEditing && editTool === 'brush' ? setupDrawCanvas : undefined}
                                         />
                                     );
                                 })()}
-                                {/* Drawing Canvas Overlay - matches image exactly */}
-                                {isEditing && editTool === 'brush' && (
-                                    <canvas
-                                        ref={drawCanvasRef}
-                                        className="absolute inset-0"
-                                        style={{ cursor: isEraser ? 'cell' : 'crosshair', pointerEvents: 'auto' }}
-                                        onPointerDown={handleDrawStart}
-                                    />
-                                )}
                             </div>
                         )}
                     </div>
@@ -1445,19 +1558,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                             onClick={() => switchTool('crop')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'crop' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
                         >
-                            <Crop size={14} /> Crop <span className="opacity-50 font-normal ml-0.5">(C)</span>
+                            <Crop size={14} /> 裁切 <span className="opacity-50 font-normal ml-0.5">(C)</span>
                         </button>
                         <button
                             onClick={() => switchTool('brush')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'brush' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
                         >
-                            <Paintbrush size={14} /> Brush <span className="opacity-50 font-normal ml-0.5">(B)</span>
+                            <Paintbrush size={14} /> 画笔 <span className="opacity-50 font-normal ml-0.5">(B)</span>
                         </button>
                         <button
                             onClick={() => switchTool('adjust')}
                             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${editTool === 'adjust' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
                         >
-                            <SlidersHorizontal size={14} /> Adjust <span className="opacity-50 font-normal ml-0.5">(A)</span>
+                            <SlidersHorizontal size={14} /> 调节 <span className="opacity-50 font-normal ml-0.5">(A)</span>
                         </button>
                     </div>
 
@@ -1483,7 +1596,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         onChange={(e) => { setBrushColor(e.target.value); setIsEraser(false); }}
                                         className="w-5 h-5 rounded-full cursor-pointer border-0 p-0 appearance-none"
                                         style={{ backgroundColor: 'transparent' }}
-                                        title="Custom Color"
+                                        title="自定义颜色"
                                     />
                                 </div>
                             </div>
@@ -1525,19 +1638,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                             <button
                                 onClick={() => setIsEraser(!isEraser)}
                                 className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${isEraser ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:text-white hover:bg-neutral-800'}`}
-                                title="Eraser"
+                                title="橡皮擦"
                             >
-                                <Eraser size={14} /> Eraser
+                                <Eraser size={14} /> 橡皮擦
                             </button>
 
                             {/* Undo */}
                             <button
                                 onClick={undoBrush}
                                 className="px-2 py-1 text-xs text-gray-400 hover:text-white rounded hover:bg-neutral-800 flex items-center gap-1 transition-colors"
-                                title="Undo (Ctrl+Z)"
+                                title="撤销 (Ctrl+Z)"
                                 disabled={drawHistoryRef.current.length === 0}
                             >
-                                <RotateCcw size={14} /> Undo
+                                <RotateCcw size={14} /> 撤销
                             </button>
                         </div>
                     )}
@@ -1552,7 +1665,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 </div>
                             </div>
                             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
-                                <button onClick={() => handleAspectChange(undefined)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === undefined ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>Free</button>
+                                <button onClick={() => handleAspectChange(undefined)} className={`px-2 py-1 text-xs rounded transition-colors ${effectiveAspect === undefined ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>自由</button>
                                 <button onClick={() => handleAspectChange(1)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === 1 ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>1:1</button>
                                 <button onClick={() => handleAspectChange(4 / 3)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === 4 / 3 ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>4:3</button>
                                 <button onClick={() => handleAspectChange(16 / 9)} className={`px-2 py-1 text-xs rounded transition-colors ${aspect === 16 / 9 ? 'text-blue-400 bg-neutral-800 font-medium' : 'text-gray-400 hover:bg-neutral-800'}`}>16:9</button>
@@ -1561,21 +1674,29 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
                                 <div className="w-px h-4 bg-neutral-700 mx-1 hidden md:block" />
                                 <div className="flex items-center gap-1">
-                                    <span className="text-gray-400 text-xs hidden md:inline ml-1">Export:</span>
-                                    <input type="number" value={targetW} onChange={handleTargetWChange} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="Auto" />
+                                    <input type="number" value={targetW} onChange={handleTargetWChange} className="w-16 bg-neutral-800 text-gray-300 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500" placeholder="W" />
                                     <span className="text-gray-500 text-xs">x</span>
-                                    <input type="number" value={targetH} onChange={handleTargetHChange} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="Auto" />
-                                    <span className="text-gray-500 text-xs ml-1">px</span>
+                                    <input type="number" value={targetH} onChange={handleTargetHChange} disabled={!!aspect} className={`w-16 bg-neutral-800 text-xs px-1.5 py-1 rounded border border-neutral-700 focus:outline-none focus:border-blue-500 ${aspect ? 'text-gray-500 opacity-70 cursor-not-allowed' : 'text-gray-300'}`} placeholder="H" />
+                                    <span className="text-gray-500 text-xs">px</span>
+                                    {(targetW || targetH) && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); clearTargetDimensions(); }}
+                                            className="p-0.5 rounded hover:bg-neutral-700 text-gray-500 hover:text-red-400 transition-colors ml-0.5"
+                                            title="清除尺寸"
+                                        >
+                                            <XIcon size={12} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center justify-center gap-2 px-2">
-                                <button onClick={(e) => { e.stopPropagation(); setRotation(r => r - 90); }} className="px-2 py-1 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm" title="Rotate Left">
+                                <button onClick={(e) => { e.stopPropagation(); setRotation(r => r - 90); }} className="px-2 py-1 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm" title="向左旋转">
                                     <RotateCcw size={16} />
                                 </button>
-                                <button onClick={(e) => { e.stopPropagation(); setRotation(r => r + 90); }} className="px-2 py-1 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm" title="Rotate Right">
+                                <button onClick={(e) => { e.stopPropagation(); setRotation(r => r + 90); }} className="px-2 py-1 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm" title="向右旋转">
                                     <RotateCw size={16} />
                                 </button>
-                                <span className="text-gray-500 text-xs px-2 whitespace-nowrap hidden md:inline">Drag outside to rotate freely</span>
+                                <span className="text-gray-500 text-xs px-2 whitespace-nowrap hidden md:inline">在选区外拖拽可自由旋转</span>
                             </div>
                         </div>
                     )}
@@ -1588,7 +1709,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                             <div className="flex flex-col gap-3 w-[400px] sm:w-[460px] flex-shrink-0">
                                 {/* Brightness */}
                                 <div className="flex items-center gap-3">
-                                    <span className="text-gray-400 text-xs w-16">Brightness</span>
+                                    <span className="text-gray-400 text-xs w-16">亮度</span>
                                     <input
                                         type="range" min="0" max="200"
                                         value={adjustBrightness} onChange={(e) => setAdjustBrightness(Number(e.target.value))}
@@ -1603,7 +1724,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 
                                 {/* Contrast */}
                                 <div className="flex items-center gap-3">
-                                    <span className="text-gray-400 text-xs w-16">Contrast</span>
+                                    <span className="text-gray-400 text-xs w-16">对比度</span>
                                     <input
                                         type="range" min="0" max="200"
                                         value={adjustContrast} onChange={(e) => setAdjustContrast(Number(e.target.value))}
@@ -1618,7 +1739,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
                                 {/* Saturation */}
                                 <div className="flex items-center gap-3">
-                                    <span className="text-gray-400 text-xs w-16">Saturation</span>
+                                    <span className="text-gray-400 text-xs w-16">饱和度</span>
                                     <input
                                         type="range" min="0" max="200"
                                         value={adjustSaturation} onChange={(e) => setAdjustSaturation(Number(e.target.value))}
@@ -1633,7 +1754,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
                                 {/* Hue */}
                                 <div className="flex items-center gap-3">
-                                    <span className="text-gray-400 text-xs w-16">Hue</span>
+                                    <span className="text-gray-400 text-xs w-16">色相</span>
                                     <input
                                         type="range" min="-180" max="180"
                                         value={adjustHue} onChange={(e) => setAdjustHue(Number(e.target.value))}
@@ -1653,13 +1774,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         className={`text-xs flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-md border flex-shrink-0 ${showCurvePicker ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)]' : 'bg-neutral-800 border-neutral-700 text-gray-300 hover:text-blue-400 hover:border-blue-500/50'}`}
                                     >
                                         <Activity size={14} className={showCurvePicker ? "text-blue-200" : "text-blue-500"} /> 
-                                        {showCurvePicker ? "Close Curve" : "Tone Curve"}
+                                        {showCurvePicker ? "关闭曲线" : "色调曲线"}
                                     </button>
                                     
                                     {showCurvePicker && (
                                         <div className="fixed bottom-[140px] left-[50%] -translate-x-1/2 md:-translate-x-0 md:left-6 w-[300px] bg-neutral-900/95 backdrop-blur-md border border-neutral-700 shadow-[0_0_40px_rgba(0,0,0,0.8)] rounded-xl p-4 z-[200]">
                                             <div className="flex justify-between items-center mb-3">
-                                                <h3 className="text-white text-sm font-medium flex items-center gap-2"><Activity size={14} className="text-blue-400" /> Tone Curve</h3>
+                                                <h3 className="text-white text-sm font-medium flex items-center gap-2"><Activity size={14} className="text-blue-400" /> 色调曲线</h3>
                                                 <button onClick={() => setShowCurvePicker(false)} className="text-gray-400 hover:text-white transition-colors hover:bg-neutral-800 p-1 rounded-md"><XIcon size={14}/></button>
                                             </div>
                                             <ToneCurve 
@@ -1674,19 +1795,19 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         onClick={() => { setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); setAdjustCurve([{x:0, y:0}, {x:255, y:255}]); }}
                                         className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
                                     >
-                                        <RotateCcw size={10} /> Reset Basic
+                                        <RotateCcw size={10} /> 重置基础调节
                                     </button>
                                 </div>
 
                                 <div className="w-full h-px bg-neutral-800 my-1" />
                                 
                                 <div className="flex items-center justify-between mb-1">
-                                    <div className="text-gray-400 text-xs font-medium">Selective Filter</div>
+                                    <div className="text-gray-400 text-xs font-medium">选色滤镜</div>
                                     <button
                                         onClick={() => setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 })}
                                         className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
                                     >
-                                        <RotateCcw size={10} /> Reset Selective
+                                        <RotateCcw size={10} /> 重置选色
                                     </button>
                                 </div>
                                 
@@ -1700,7 +1821,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         <div key={c.key} className="flex items-center gap-2.5 min-w-0">
                                             <div 
                                                 className={`w-3 h-3 rounded-full flex-shrink-0 ${c.bg} shadow-[0_0_2px_rgba(0,0,0,0.5)]`} 
-                                                title={c.key.charAt(0).toUpperCase() + c.key.slice(1)} 
+                                                title={{reds: '红色', yellows: '黄色', greens: '绿色', cyans: '青色', blues: '蓝色', magentas: '洋红'}[c.key]} 
                                             />
                                             <input
                                                 type="range" min="-100" max="100"
@@ -1723,26 +1844,26 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                             {/* Right Column (Three-Way Grading) */}
                             <div className="flex flex-col w-[280px] sm:w-[340px] justify-center flex-shrink-0">
                                 <div className="flex items-center justify-between mb-3 px-1">
-                                    <div className="text-gray-400 text-xs font-medium">Color Grading</div>
+                                    <div className="text-gray-400 text-xs font-medium">色彩分级</div>
                                     <button
                                         onClick={() => { setGradingShadows({x: 0, y: 0}); setGradingMidtones({x: 0, y: 0}); setGradingHighlights({x: 0, y: 0}); }}
                                         className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
                                     >
-                                        <RotateCcw size={10} /> Reset Grading
+                                        <RotateCcw size={10} /> 重置分级
                                     </button>
                                 </div>
                                 
                                 <div className="flex items-center justify-between gap-1 sm:gap-2 px-1 w-full relative h-[120px]">
-                                    <ColorWheel label="Shadows" value={gradingShadows} onChange={setGradingShadows} />
-                                    <ColorWheel label="Midtones" value={gradingMidtones} onChange={setGradingMidtones} />
-                                    <ColorWheel label="Highlights" value={gradingHighlights} onChange={setGradingHighlights} />
+                                    <ColorWheel label="阴影" value={gradingShadows} onChange={setGradingShadows} />
+                                    <ColorWheel label="中间调" value={gradingMidtones} onChange={setGradingMidtones} />
+                                    <ColorWheel label="高光" value={gradingHighlights} onChange={setGradingHighlights} />
                                 </div>
 
                                 {/* Preset Slots */}
                                 <div className="flex flex-col gap-1.5 px-3 mt-4 mb-1">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-[10px] text-gray-500 font-medium tracking-wide">PRESETS</span>
-                                        <span className="text-[9px] text-gray-600">L: Load | R: Save | Dbl: Rename</span>
+                                        <span className="text-[10px] text-gray-500 font-medium tracking-wide">预设</span>
+                                        <span className="text-[9px] text-gray-600">左键:加载 | 右键:保存 | 双击:重命名</span>
                                     </div>
                                     <div className="flex gap-2">
                                         {[0, 1, 2, 3].map(index => {
@@ -1827,7 +1948,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                                                 ? 'bg-neutral-800 text-blue-400 border-blue-500/30 hover:bg-neutral-700 hover:border-blue-400 cursor-pointer shadow-[0_0_8px_rgba(59,130,246,0.1)]' 
                                                                 : 'bg-neutral-900 text-gray-600 border-neutral-800 hover:bg-neutral-800 hover:border-neutral-700 cursor-pointer border-dashed'
                                                     }`}
-                                                    title={isSaved ? "Left-click: Load\nRight-click: Overwrite\nDouble-click: Rename" : "Right-click: Save Current Setup"}
+                                                    title={isSaved ? "左键: 加载\n右键: 覆盖\n双击: 重命名" : "右键: 保存当前设置"}
                                                 >
                                                     {justSavedPreset === index ? <Check size={14} className="animate-in zoom-in duration-200 flex-shrink-0" /> : <span className="truncate w-full text-center">{displayName}</span>}
                                                 </button>
@@ -1848,7 +1969,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         }}
                                         className="text-[11px] text-red-500 hover:bg-red-500/10 hover:text-red-400 flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-md"
                                     >
-                                        <RotateCcw size={11} /> Reset All Adjustments
+                                        <RotateCcw size={11} /> 重置所有调节
                                     </button>
                                 </div>
                             </div>
@@ -1859,13 +1980,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     {isEditing && (
                         <div className="flex items-center justify-center gap-2 pt-1 px-2 border-t border-neutral-800">
                             <button onClick={cancelEdit} disabled={isSaving} className="px-3 py-1.5 rounded hover:bg-neutral-800 text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-sm">
-                                <XIcon size={14} /> Cancel
+                                <XIcon size={14} /> 取消
                             </button>
                             <button onClick={(e) => saveEdit(e, false)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
-                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') !== 'true' ? 'Saving...' : 'Save Copy'}
+                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') !== 'true' ? '保存中...' : '另存为'}
                             </button>
                             <button onClick={(e) => saveEdit(e, true)} disabled={isSaving} className={`px-3 py-1.5 rounded ${localStorage.getItem('settings_crop_overwrite') === 'true' ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white'} disabled:opacity-50 transition-colors flex items-center gap-1 text-sm`}>
-                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') === 'true' ? 'Saving...' : 'Overwrite'}
+                                <Check size={14} /> {isSaving && localStorage.getItem('settings_crop_overwrite') === 'true' ? '保存中...' : '覆盖原图'}
                             </button>
                         </div>
                     )}

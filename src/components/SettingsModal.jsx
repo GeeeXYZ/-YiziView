@@ -1,44 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { X, Trash2, Download, Upload, Settings as SettingsIcon, Keyboard, Blocks, Sliders, Zap, Database, Info, FolderOpen, Puzzle } from 'lucide-react';
 import ConfirmModal from './ui/ConfirmModal';
+import { useTranslation } from '../hooks/useTranslation';
+import { setLanguage } from '../locales/i18n';
 
 // ─── Keyboard Shortcut Data ────────────────────────────────────────────────
-const SHORTCUT_GROUPS = [
+const getShortcutGroups = (t) => [
     {
-        label: 'Grid — Browse & Open',
+        label: t('shortcutGridBrowse'),
         color: 'text-blue-400',
         items: [
-            { keys: ['Enter'], desc: 'Open selected image fullscreen' },
-            { keys: ['Ctrl', 'Enter'], desc: 'Open selected image in panel view' },
-            { keys: ['Shift', 'Click'], desc: 'Range-select multiple images' },
-            { keys: ['Delete'], desc: 'Send selected image(s) to Recycle Bin' },
-            { keys: ['F'], desc: 'Toggle favourite (Single / Multi-select)' },
-            { keys: ['P'], desc: 'Toggle prompt view (Single image only)' },
+            { keys: ['Enter'], desc: t('shortcutOpenFullscreen') },
+            { keys: ['Ctrl', 'Enter'], desc: t('shortcutOpenPanel') },
+            { keys: ['Shift', 'Click'], desc: t('shortcutRangeSelect') },
+            { keys: ['Delete'], desc: t('shortcutDelete') },
+            { keys: ['F'], desc: t('shortcutToggleFav') },
+            { keys: ['P'], desc: t('shortcutTogglePrompt') },
         ],
     },
     {
-        label: 'Viewer — Navigation',
+        label: t('shortcutViewerNav'),
         color: 'text-emerald-400',
         items: [
-            { keys: ['←', '→'], desc: 'Previous / Next image' },
-            { keys: ['Esc'], desc: 'Close viewer / cancel current edit' },
-            { keys: ['Space'], desc: 'Toggle slideshow autoplay' },
-            { keys: ['Scroll'], desc: 'Zoom in / out at cursor' },
-            { keys: ['Middle drag'], desc: 'Pan image freely' },
+            { keys: ['←', '→'], desc: t('shortcutPrevNext') },
+            { keys: ['Esc'], desc: t('shortcutCloseViewer') },
+            { keys: ['Space'], desc: t('shortcutToggleSlideshow') },
+            { keys: ['Scroll'], desc: t('shortcutZoomInout') },
+            { keys: ['Middle drag'], desc: t('shortcutPanImage') },
         ],
     },
     {
-        label: 'Viewer — Edit Tools',
+        label: t('shortcutViewerEdit'),
         color: 'text-violet-400',
         items: [
-            { keys: ['C'], desc: 'Crop tool' },
-            { keys: ['B'], desc: 'Brush / annotate tool' },
-            { keys: ['A'], desc: 'Adjust (color grading) tool' },
-            { keys: ['Enter'], desc: 'Confirm & save edits' },
-            { keys: ['Ctrl', 'Z'], desc: 'Undo last brush stroke' },
-            { keys: ['[', ']'], desc: 'Decrease / Increase brush size' },
-            { keys: ['F'], desc: 'Toggle favourite' },
-            { keys: ['T'], desc: 'Show / hide edit toolbar' },
+            { keys: ['C'], desc: t('shortcutCrop') },
+            { keys: ['B'], desc: t('shortcutBrush') },
+            { keys: ['A'], desc: t('shortcutAdjust') },
+            { keys: ['Enter'], desc: t('shortcutConfirmSave') },
+            { keys: ['Ctrl', 'Z'], desc: t('shortcutUndoBrush') },
+            { keys: ['[', ']'], desc: t('shortcutBrushSize') },
+            { keys: ['F'], desc: t('shortcutToggleFav') },
+            { keys: ['T'], desc: t('shortcutToggleToolbar') },
         ],
     },
 ];
@@ -87,6 +89,7 @@ const PluginShortcutRow = ({ action, customShortcuts, onSave }) => {
         return () => window.removeEventListener('keydown', handleKeyDown, true);
     }, [isRecording, action.id, onSave]);
 
+    const { t } = useTranslation();
     return (
          <div className="flex items-center justify-between pr-4 py-2.5 gap-4">
              <span className="text-sm text-gray-300">{action.name}</span>
@@ -94,21 +97,38 @@ const PluginShortcutRow = ({ action, customShortcuts, onSave }) => {
                  onClick={() => setIsRecording(true)}
                  className={`flex items-center gap-1 shrink-0 px-2 py-1 rounded border min-w-[80px] justify-end focus:outline-none transition-all ${isRecording ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-transparent hover:border-neutral-700 bg-neutral-800/40'}`}
              >
-                 {isRecording ? <span className="text-xs animate-pulse text-blue-400">Press Keys...</span> : (
+                 {isRecording ? <span className="text-xs animate-pulse text-blue-400">{t('pressKeys')}</span> : (
                      currentKey ? currentKey.split('+').map((k, ki) => (
                          <React.Fragment key={ki}>
                              {ki > 0 && <span className="text-neutral-600 text-[10px] mx-0.5">+</span>}
                              <Kbd>{k}</Kbd>
                          </React.Fragment>
-                     )) : <span className="text-xs text-neutral-600">Unbound</span>
+                     )) : <span className="text-xs text-neutral-600">{t('unbound')}</span>
                  )}
              </button>
          </div>
     );
 };
 
+const SectionBlock = ({ children }) => (
+    <div className="bg-neutral-900/40 rounded-xl p-5 border border-neutral-800/80 shadow-md">
+        {children}
+    </div>
+);
+
+const SettingRow = ({ title, desc, action }) => (
+    <div className="flex items-center justify-between gap-6">
+        <div className="flex-1 pr-4">
+            <h4 className="text-white font-medium mb-1">{title}</h4>
+            <p className="text-sm text-gray-400/80 leading-snug">{desc}</p>
+        </div>
+        <div className="shrink-0">{action}</div>
+    </div>
+);
+
 
 const SettingsModal = ({ isOpen, onClose }) => {
+    const { t, lang } = useTranslation();
     const [activeTab, setActiveTab] = useState('general');
     const [pluginsList, setPluginsList] = useState([]);
     const [loadingPlugins, setLoadingPlugins] = useState(true);
@@ -427,22 +447,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
         );
     };
 
-    // Sub-components for Right Pane Sections
-    const SectionBlock = ({ children }) => (
-        <div className="bg-neutral-900/40 rounded-xl p-5 border border-neutral-800/80 shadow-md">
-            {children}
-        </div>
-    );
 
-    const SettingRow = ({ title, desc, action }) => (
-        <div className="flex items-center justify-between gap-6">
-            <div className="flex-1 pr-4">
-                <h4 className="text-white font-medium mb-1">{title}</h4>
-                <p className="text-sm text-gray-400/80 leading-snug">{desc}</p>
-            </div>
-            <div className="shrink-0">{action}</div>
-        </div>
-    );
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={onClose}>
@@ -456,21 +461,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         <div className="p-2 bg-blue-500/10 rounded-lg">
                             <SettingsIcon size={20} className="text-blue-400" />
                         </div>
-                        <h2 className="text-lg font-semibold text-white tracking-wide">Settings</h2>
+                        <h2 className="text-lg font-semibold text-white tracking-wide">{t('settings')}</h2>
                     </div>
                     
                     <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar pb-6">
-                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-2 px-3 uppercase">Preferences</div>
-                        {renderTabButton('general', <Sliders size={16} />, 'General')}
-                        {renderTabButton('performance', <Zap size={16} />, 'Performance')}
-                        {renderTabButton('backup', <Database size={16} />, 'Backup & Restore')}
+                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-2 px-3 uppercase">{t('preferences')}</div>
+                        {renderTabButton('general', <Sliders size={16} />, t('general'))}
+                        {renderTabButton('performance', <Zap size={16} />, t('performance'))}
+                        {renderTabButton('backup', <Database size={16} />, t('backupRestore'))}
                         
-                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-8 px-3 uppercase">Extensions</div>
-                        {renderTabButton('plugins', <Blocks size={16} />, 'Plugins Center')}
+                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-8 px-3 uppercase">{t('extensions')}</div>
+                        {renderTabButton('plugins', <Blocks size={16} />, t('pluginsCenter'))}
                         
-                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-8 px-3 uppercase">System</div>
-                        {renderTabButton('shortcuts', <Keyboard size={16} />, 'Shortcuts')}
-                        {renderTabButton('about', <Info size={16} />, 'Updates & About')}
+                        <div className="text-[11px] font-bold tracking-widest text-neutral-500/80 mb-2 mt-8 px-3 uppercase">{t('system')}</div>
+                        {renderTabButton('shortcuts', <Keyboard size={16} />, t('shortcuts'))}
+                        {renderTabButton('about', <Info size={16} />, t('updatesAbout'))}
                     </nav>
                 </div>
 
@@ -490,12 +495,35 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {/* GENERAL TAB */}
                             {activeTab === 'general' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <h3 className="text-2xl font-semibold text-white mb-6">General</h3>
+                                    <h3 className="text-2xl font-semibold text-white mb-6">{t('general')}</h3>
                                     
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Confirm before deletion"
-                                            desc="Show a confirmation dialog when deleting files or folders to prevent accidents."
+                                            title={t('language')}
+                                            desc={t('languageDesc')}
+                                            action={
+                                                <div className="flex bg-neutral-950 rounded border border-neutral-700/50 p-1 gap-1">
+                                                    <button
+                                                        onClick={() => setLanguage('en')}
+                                                        className={`px-4 py-1.5 rounded transition-colors text-sm font-medium ${lang === 'en' ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                                    >
+                                                        En
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setLanguage('zh')}
+                                                        className={`px-4 py-1.5 rounded transition-colors text-sm font-medium ${lang === 'zh' ? 'bg-neutral-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                                                    >
+                                                        中文
+                                                    </button>
+                                                </div>
+                                            }
+                                        />
+                                    </SectionBlock>
+
+                                    <SectionBlock>
+                                        <SettingRow 
+                                            title={t('confirmDelete')}
+                                            desc={t('confirmDeleteDesc')}
                                             action={
                                                 <button
                                                     onClick={handleToggleConfirmDelete}
@@ -509,8 +537,8 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Bypass System Proxy (Global Direct Connection)"
-                                            desc="Force all network traffic (including Plugins and OSS Uploads) to bypass Clash/VPN. Recommended for users in China to prevent OSS upload timeouts."
+                                            title={t('bypassProxy')}
+                                            desc={t('bypassProxyDesc')}
                                             action={
                                                 <button
                                                     onClick={handleToggleNetworkMode}
@@ -524,21 +552,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Default Edit Save Action"
-                                            desc="Select the default behavior when pressing Enter to save a cropped or edited image."
+                                            title={t('defaultSaveAction')}
+                                            desc={t('defaultSaveActionDesc')}
                                             action={
                                                 <div className="flex bg-neutral-950 rounded border border-neutral-700/50 p-1 gap-1">
                                                     <button
                                                         onClick={() => { setCropOverwrite(false); localStorage.setItem('settings_crop_overwrite', 'false'); }}
                                                         className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${!cropOverwrite ? 'bg-neutral-800 text-white shadow-sm ring-1 ring-neutral-700' : 'text-gray-500 hover:text-gray-300'}`}
                                                     >
-                                                        Save Copy
+                                                        {t('saveCopy')}
                                                     </button>
                                                     <button
                                                         onClick={() => { setCropOverwrite(true); localStorage.setItem('settings_crop_overwrite', 'true'); }}
                                                         className={`px-4 py-1.5 rounded transition-colors text-sm font-medium ${cropOverwrite ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
                                                     >
-                                                        Overwrite
+                                                        {t('overwrite')}
                                                     </button>
                                                 </div>
                                             }
@@ -547,8 +575,8 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Color Grading Intensity"
-                                            desc="Limit the maximum strength of three-way color grading wheels to prevent over-editing."
+                                            title={t('colorGradingIntensity')}
+                                            desc={t('colorGradingIntensityDesc')}
                                             action={
                                                 <div className="flex items-center gap-3">
                                                     <input
@@ -571,44 +599,44 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {/* PERFORMANCE TAB */}
                             {activeTab === 'performance' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <h3 className="text-2xl font-semibold text-white mb-6">Performance</h3>
+                                    <h3 className="text-2xl font-semibold text-white mb-6">{t('performance')}</h3>
                                     
                                     <SectionBlock>
                                         <div className="space-y-6">
                                             <SettingRow 
-                                                title="Thumbnail Quality"
-                                                desc="Target resolution for grid thumbnails. Lower resolution saves RAM and improves scroll speed."
+                                                title={t('thumbQuality')}
+                                                desc={t('thumbQualityDesc')}
                                                 action={
                                                     <select
                                                         value={localStorage.getItem('settings_thumb_size') || '600'}
                                                         onChange={(e) => { localStorage.setItem('settings_thumb_size', e.target.value); window.location.reload(); }}
                                                         className="bg-neutral-950 text-white text-sm rounded-lg border border-neutral-700 px-3 py-2 outline-none focus:border-blue-500 transition-colors cursor-pointer w-40"
                                                     >
-                                                        <option value="256">256px (Fastest)</option>
-                                                        <option value="400">400px (Light)</option>
-                                                        <option value="600">600px (Standard)</option>
-                                                        <option value="800">800px (High)</option>
-                                                        <option value="1024">1024px (Ultra)</option>
+                                                        <option value="256">{t('fastest')}</option>
+                                                        <option value="400">{t('light')}</option>
+                                                        <option value="600">{t('standard')}</option>
+                                                        <option value="800">{t('high')}</option>
+                                                        <option value="1024">{t('ultra')}</option>
                                                     </select>
                                                 }
                                             />
                                             <div className="h-px bg-neutral-800/50 w-full"></div>
                                             <SettingRow 
-                                                title="Thumbnail Fit Mode"
-                                                desc="Fill mode crops image to make perfect squares. Fit mode shows the entire image with borders."
+                                                title={t('thumbFitMode')}
+                                                desc={t('thumbFitModeDesc')}
                                                 action={
                                                     <div className="flex bg-neutral-950 rounded border border-neutral-700/50 p-1 gap-1">
                                                         <button
                                                             onClick={() => { setThumbFit('cover'); localStorage.setItem('settings_thumb_fit', 'cover'); window.dispatchEvent(new CustomEvent('settings-updated')); }}
                                                             className={`px-4 py-1.5 rounded transition-colors text-sm font-medium ${thumbFit === 'cover' ? 'bg-neutral-800 text-white shadow-sm ring-1 ring-neutral-700' : 'text-gray-500 hover:text-gray-300'}`}
                                                         >
-                                                            Fill (Cover)
+                                                            {t('fillCover')}
                                                         </button>
                                                         <button
                                                             onClick={() => { setThumbFit('contain'); localStorage.setItem('settings_thumb_fit', 'contain'); window.dispatchEvent(new CustomEvent('settings-updated')); }}
                                                             className={`px-4 py-1.5 rounded transition-colors text-sm font-medium ${thumbFit === 'contain' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
                                                         >
-                                                            Fit (Contain)
+                                                            {t('fitContain')}
                                                         </button>
                                                     </div>
                                                 }
@@ -618,15 +646,15 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Clear Cached Data"
-                                            desc="Remove all previously generated thumbnails from your hard drive. New thumbnails will be regenerated automatically as you browse."
+                                            title={t('clearCachedData')}
+                                            desc={t('clearCachedDataDesc')}
                                             action={
                                                 <button
                                                     onClick={handleClearThumbnails} disabled={clearing}
                                                     className="h-9 px-5 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 text-rose-400 border border-rose-500/20 rounded-lg flex items-center justify-center gap-2 transition-all text-sm font-medium whitespace-nowrap"
                                                 >
                                                     <Trash2 size={14} />
-                                                    {clearing ? 'Clearing...' : 'Clear Thumbnails'}
+                                                    {clearing ? t('clearing') : t('clearThumbnails')}
                                                 </button>
                                             }
                                         />
@@ -637,25 +665,25 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {/* BACKUP TAB */}
                             {activeTab === 'backup' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <h3 className="text-2xl font-semibold text-white mb-6">Backup & Restore</h3>
+                                    <h3 className="text-2xl font-semibold text-white mb-6">{t('backupRestore')}</h3>
                                     
                                     <SectionBlock>
                                         <SettingRow 
-                                            title="Configuration Portable Backup"
-                                            desc="Export your favourites, folder colors, tags, and app preferences into a single JSON file. You can import this file on a new device to perfectly restore your setup."
+                                            title={t('configPortableBackup')}
+                                            desc={t('configPortableBackupDesc')}
                                             action={
                                                 <div className="flex items-center gap-3">
                                                     <button
                                                         onClick={handleExportSettings} disabled={exporting}
                                                         className="h-9 px-4 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-600/50 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-sm"
                                                     >
-                                                        <Download size={14} className="text-blue-400" /> Export
+                                                        <Download size={14} className="text-blue-400" /> {t('export')}
                                                     </button>
                                                     <button
                                                         onClick={handleImportSettings} disabled={importing}
                                                         className="h-9 px-4 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-600/50 rounded-lg flex items-center gap-2 transition-all text-sm font-medium shadow-sm"
                                                     >
-                                                        <Upload size={14} className="text-emerald-400" /> Restore
+                                                        <Upload size={14} className="text-emerald-400" /> {t('restore')}
                                                     </button>
                                                 </div>
                                             }
@@ -668,7 +696,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {activeTab === 'plugins' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                     <div className="flex items-center justify-between mb-6">
-                                        <h3 className="text-2xl font-semibold text-white">Plugin Center</h3>
+                                        <h3 className="text-2xl font-semibold text-white">{t('pluginsCenter')}</h3>
                                     </div>
                                     
                                     <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-5 mb-6">
@@ -677,29 +705,29 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                                 <Blocks size={18} className="text-blue-400" />
                                             </div>
                                             <div>
-                                                <h4 className="text-blue-100 font-medium mb-1">Extensible Architecture</h4>
+                                                <h4 className="text-blue-100 font-medium mb-1">{t('extensibleArchitecture')}</h4>
                                                 <p className="text-sm text-blue-200/70 leading-relaxed mb-4">
-                                                    Plugins can deeply customize YiziView's behaviour and UI. Drop plugin folders into the local directory to install them. 
+                                                    {t('pluginsDesc')}
                                                 </p>
                                                 <button 
                                                     onClick={handleOpenPluginDir}
                                                     className="text-sm bg-blue-600/80 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 font-medium border border-blue-500/50 shadow-sm"
                                                 >
-                                                    <FolderOpen size={16}/> Open Plugin Folder
+                                                    <FolderOpen size={16}/> {t('openPluginFolder')}
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-widest px-1 mb-3">Installed Extensions</h4>
+                                    <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-widest px-1 mb-3">{t('installedExtensions')}</h4>
                                     
                                     {loadingPlugins ? (
-                                        <div className="p-8 text-center text-gray-400">Scanning plugins...</div>
+                                        <div className="p-8 text-center text-gray-400">{t('scanningPlugins')}</div>
                                     ) : pluginsList.length === 0 ? (
                                         <div className="border border-dashed border-neutral-700 rounded-xl p-10 flex flex-col items-center justify-center text-center">
                                             <FolderOpen size={32} className="text-neutral-500 mb-3" />
-                                            <h4 className="text-white font-medium mb-1">No Plugins Found</h4>
-                                            <p className="text-sm text-gray-400">Click "Open Plugin Folder" and drop your plugin folders there.</p>
+                                            <h4 className="text-white font-medium mb-1">{t('noPluginsFound')}</h4>
+                                            <p className="text-sm text-gray-400">{t('noPluginsDesc')}</p>
                                         </div>
                                     ) : (
                                         <div className="grid gap-3">
@@ -712,15 +740,15 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                                         <div className="flex items-center gap-2 mb-1">
                                                             <h4 className={`font-semibold ${plugin.disabled ? 'text-gray-500' : 'text-white'}`}>{plugin.name || plugin.id}</h4>
                                                             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-950 text-neutral-400 border border-neutral-800">
-                                                                Local
+                                                                {t('local')}
                                                             </span>
                                                             <span className="text-[10px] text-neutral-500">v{plugin.version || '1.0.0'}</span>
                                                         </div>
-                                                        <p className="text-sm text-gray-500 line-clamp-1">{plugin.description || 'Loaded cleanly from local directory.'}</p>
+                                                        <p className="text-sm text-gray-500 line-clamp-1">{plugin.description || t('loadedCleanly')}</p>
                                                     </div>
                                                     <div className="flex items-center gap-3 shrink-0">
                                                         <span className={`inline-flex w-16 items-center justify-center gap-1.5 px-2 py-1 rounded text-xs font-medium border ${!plugin.disabled ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-neutral-800 text-neutral-500 border-neutral-700'}`}>
-                                                            <span className={`w-1.5 h-1.5 rounded-full ${!plugin.disabled ? 'bg-emerald-400' : 'bg-neutral-500'}`}></span> {!plugin.disabled ? 'Active' : 'Off'}
+                                                            <span className={`w-1.5 h-1.5 rounded-full ${!plugin.disabled ? 'bg-emerald-400' : 'bg-neutral-500'}`}></span> {!plugin.disabled ? t('active') : t('off')}
                                                         </span>
                                                         
                                                         {/* Toggle Switch */}
@@ -735,7 +763,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                                         <button 
                                                             onClick={() => handleDeletePlugin(plugin.id)}
                                                             className="p-1.5 text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors ml-1"
-                                                            title="Delete Plugin"
+                                                            title={t('deletePlugin')}
                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
@@ -750,7 +778,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {/* UPDATES TAB */}
                             {activeTab === 'about' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <h3 className="text-2xl font-semibold text-white mb-6">About YiziView</h3>
+                                    <h3 className="text-2xl font-semibold text-white mb-6">{t('aboutYiziView')}</h3>
                                     
                                     <SectionBlock>
                                         <div className="flex items-center justify-between gap-6 pb-6 border-b border-neutral-800/80 mb-6">
@@ -758,19 +786,19 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                                 <h4 className="text-lg font-semibold text-white flex items-center gap-2">
                                                     YiziView <span className="text-sm font-mono text-gray-500 font-normal">v{__APP_VERSION__}</span>
                                                 </h4>
-                                                <p className="text-sm text-gray-400 mt-1">High-performance local image manager and creative viewer.</p>
+                                                <p className="text-sm text-gray-400 mt-1">{t('appDescription')}</p>
                                             </div>
                                             
                                             <div className="shrink-0 w-[180px] flex justify-end">
                                                 {updateStatus === 'downloaded' ? (
-                                                    <button onClick={handleInstallUpdate} className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all text-sm font-medium shadow-md w-full"> Restart to Install </button>
+                                                    <button onClick={handleInstallUpdate} className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all text-sm font-medium shadow-md w-full"> {t('restartToInstall')} </button>
                                                 ) : updateStatus === 'downloading' ? (
-                                                    <button onClick={handleCancelUpdate} className="h-9 px-4 bg-rose-500/10 text-rose-400 rounded-lg transition-all text-sm font-medium w-full"> Cancel Download </button>
+                                                    <button onClick={handleCancelUpdate} className="h-9 px-4 bg-rose-500/10 text-rose-400 rounded-lg transition-all text-sm font-medium w-full"> {t('cancelDownload')} </button>
                                                 ) : updateStatus === 'available' ? (
-                                                    <button onClick={handleDownloadUpdate} disabled={isAutoUpdateEnabled} className="h-9 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all text-sm font-medium w-full"> Download Update </button>
+                                                    <button onClick={handleDownloadUpdate} disabled={isAutoUpdateEnabled} className="h-9 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all text-sm font-medium w-full"> {t('downloadUpdate')} </button>
                                                 ) : (
                                                     <button onClick={handleCheckUpdate} disabled={updateStatus === 'checking'} className="h-9 px-4 bg-neutral-800 hover:bg-neutral-700 text-gray-200 border border-neutral-600/50 rounded-lg transition-all text-sm font-medium w-full">
-                                                        {updateStatus === 'checking' ? 'Checking...' : 'Check For Updates'}
+                                                        {updateStatus === 'checking' ? t('checking') : t('checkForUpdates')}
                                                     </button>
                                                 )}
                                             </div>
@@ -789,8 +817,8 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                         )}
 
                                         <SettingRow 
-                                            title="Auto Download Updates"
-                                            desc="Download new updates silently in the background when app is opened."
+                                            title={t('autoDownloadUpdates')}
+                                            desc={t('autoDownloadUpdatesDesc')}
                                             action={
                                                 <button
                                                     onClick={handleToggleAutoUpdate}
@@ -807,9 +835,9 @@ const SettingsModal = ({ isOpen, onClose }) => {
                             {/* SHORTCUTS TAB */}
                             {activeTab === 'shortcuts' && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <h3 className="text-2xl font-semibold text-white mb-6">Keyboard Shortcuts</h3>
+                                    <h3 className="text-2xl font-semibold text-white mb-6">{t('keyboardShortcuts')}</h3>
                                     <div className="space-y-6">
-                                        {SHORTCUT_GROUPS.map(group => (
+                                        {getShortcutGroups(t).map(group => (
                                             <div key={group.label} className="bg-neutral-900/40 rounded-xl overflow-hidden border border-neutral-800/80 shadow-sm">
                                                 <div className="bg-neutral-800/40 px-4 py-2 border-b border-neutral-800/80">
                                                     <p className={`text-[10px] font-bold uppercase tracking-widest ${group.color}`}>
@@ -838,13 +866,13 @@ const SettingsModal = ({ isOpen, onClose }) => {
                                         <div className="bg-neutral-900/40 rounded-xl overflow-hidden border border-neutral-800/80 shadow-sm mt-6">
                                             <div className="bg-neutral-800/40 px-4 py-2 border-b border-neutral-800/80 flex justify-between items-center">
                                                 <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-400">
-                                                    Extensions & Plugins
+                                                    {t('extensionsPlugins')}
                                                 </p>
-                                                <span className="text-[10px] text-gray-500 font-medium">Click any key field to change</span>
+                                                <span className="text-[10px] text-gray-500 font-medium">{t('clickToChange')}</span>
                                             </div>
                                             <div className="divide-y divide-neutral-800/60 pl-4 py-1">
                                                 {pluginActions.length === 0 ? (
-                                                    <div className="text-sm text-neutral-600 py-3 pr-4">No plugin actions currently registered.</div>
+                                                    <div className="text-sm text-neutral-600 py-3 pr-4">{t('noPluginActions')}</div>
                                                 ) : pluginActions.map(action => (
                                                     <PluginShortcutRow 
                                                         key={action.id} 

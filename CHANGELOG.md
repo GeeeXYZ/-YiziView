@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## v0.9.10
+
+✨ Features
+- Add dynamic aspect ratio locking for free mode crop
+- Full Chinese localization for the image viewer tools and settings
+
+🐛 Fixes
+- Fix settings modal UI toggles failing to visually update 
+- Prevent bottom panel flickering during image switching
+- Fix syntax error with useTranslation import causing black screen
+
+🧹 Cleanup
+- Refactor SettingRow component to prevent React unmounting
+
+---
+
+✨ 新特性
+- 在自由裁切模式下增加动态比例锁定功能
+- 为全图预览工具栏及设置页面提供完整中文汉化
+
+🐛 修复
+- 修复设置面板开关点击后界面状态未更新的问题
+- 防止在切换图片时底部信息面板发生闪烁
+- 修复因 useTranslation 导入语法错误导致的黑屏问题
+
+🧹 清理
+- 重构 SettingRow 组件以防止 React 重复卸载及导致的动画失效
+
+
 ## v0.9.9
 
 🐛 Fixes

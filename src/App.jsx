@@ -13,8 +13,10 @@ import { Columns, Rows, Plus, FolderPlus } from 'lucide-react'
 import logo from './assets/logo.svg'
 import ExtensionSlot from './components/ExtensionSlot'
 import PluginMenuDropdown from './components/PluginMenuDropdown'
+import { useTranslation } from './hooks/useTranslation'
 
 function App() {
+  const { t } = useTranslation();
   // Appearance & UI Management
   const [panels, setPanels] = useState([{ id: 'panel-1' }]);
   const [layout, setLayout] = useState('horizontal'); // 'horizontal' | 'vertical'
@@ -475,9 +477,9 @@ function App() {
             executeDeleteFiles();
           } else {
             setConfirmModal({
-              title: 'Delete Items',
-              message: `Are you sure you want to move ${pathsToDelete.length} item(s) to the Recycle Bin?`,
-              confirmText: 'Move to Recycle Bin',
+              title: t('deleteItems'),
+              message: t('deleteItemsMsg', { count: pathsToDelete.length }),
+              confirmText: t('moveToBin'),
               confirmKind: 'danger',
               onConfirm: async () => {
                 setConfirmModal(null);
@@ -583,9 +585,9 @@ function App() {
               <button
                   onClick={handleAddFolder}
                   className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 hover:text-white text-xs py-1.5 px-3 rounded flex items-center gap-1.5 border border-neutral-700 transition-colors h-7"
-                  title="Add Folder to Active Panel"
+                  title={t('addFolder')}
               >
-                  <FolderPlus size={14} /> Add Folder
+                  <FolderPlus size={14} /> {t('addFolder')}
               </button>
           </div>
 
@@ -593,7 +595,7 @@ function App() {
           <div className="flex items-center gap-3 no-drag">
               {/* Layout Switcher */}
               <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 font-medium">Layout:</span>
+                  <span className="text-xs text-gray-500 font-medium">{t('layout')}:</span>
                   <div className="flex bg-neutral-900 rounded border border-neutral-700 p-1 gap-1">
                       <button
                           onClick={() => handleLayoutChange('horizontal')}
@@ -622,7 +624,7 @@ function App() {
 
               {/* Panel Controls */}
               <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 font-medium">Panels:</span>
+                  <span className="text-xs text-gray-500 font-medium">{t('panels')}:</span>
                   <div className="flex items-center gap-2 bg-neutral-900 rounded border border-neutral-700 px-2 py-1">
                       <span className="text-xs text-gray-400">
                           {panels.length}
@@ -633,7 +635,7 @@ function App() {
                               <button
                                   onClick={handleAddPanel}
                                   className="p-0.5 rounded hover:bg-neutral-700 text-blue-400 hover:text-blue-300 transition-colors"
-                                  title="Add Panel (Ctrl+Shift+\)"
+                                  title={t('addPanel')}
                               >
                                   <Plus size={14} />
                               </button>

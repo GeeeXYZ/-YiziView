@@ -5,6 +5,7 @@ import { ConfigManager } from '@/managers/ConfigManager'
 import FolderTree from './FolderTree'
 import { ExpandedFoldersProvider, useExpandedFolders } from '../contexts/ExpandedFoldersContext'
 import ConfirmModal from './ui/ConfirmModal'
+import { useTranslation } from '../hooks/useTranslation'
 import {
     File,
     FolderOpen,
@@ -32,13 +33,14 @@ const getBasename = (path) => {
 
 const FoldersTitleBar = () => {
     const { collapseAll } = useExpandedFolders() || {};
+    const { t } = useTranslation();
     return (
         <div className="mb-2 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between group items-center">
-            <span className="flex items-center gap-1"><FolderOpen size={12} className="text-yellow-500" /> Folders</span>
+            <span className="flex items-center gap-1"><FolderOpen size={12} className="text-yellow-500" /> {t('folders')}</span>
             <button 
                 onClick={() => collapseAll && collapseAll()}
                 className="p-0.5 hover:bg-neutral-700 rounded transition-all text-gray-400 hover:text-white"
-                title="Collapse All Folders"
+                title={t('collapseAll')}
             >
                 <FolderMinus size={14} />
             </button>
@@ -47,6 +49,7 @@ const FoldersTitleBar = () => {
 };
 
 const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, locateTrigger }) => {
+    const { t } = useTranslation();
     // State
     const [tags, setTags] = useState([]);
     const [favorites, setFavorites] = useState([]);
@@ -157,9 +160,9 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
         e.preventDefault();
         e.stopPropagation();
         setConfirmModal({
-            title: 'Remove from Quick Access',
-            message: `Remove "${getBasename(path)}" from Quick Access?`,
-            confirmText: 'Remove',
+            title: t('removeFromQA'),
+            message: t('removeFromQAMsg', { name: getBasename(path) }),
+            confirmText: t('remove'),
             confirmKind: 'primary',
             onConfirm: async () => {
                 setConfirmModal(null);
@@ -211,9 +214,9 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
         e.preventDefault();
         e.stopPropagation();
         setConfirmModal({
-            title: 'Delete Tag',
-            message: `Delete tag "${tagName}"? This will remove the tag from all files.`,
-            confirmText: 'Delete',
+            title: t('deleteTag'),
+            message: t('deleteTagMsg', { name: tagName }),
+            confirmText: t('delete'),
             confirmKind: 'danger',
             onConfirm: async () => {
                 setConfirmModal(null);
@@ -357,7 +360,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                         <div className="relative mt-4 mb-3">
                             <input
                                 type="text"
-                                placeholder="Search folders..."
+                                placeholder={t('searchFolders')}
                                 className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 pl-7 text-xs text-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
                                 value={folderSearch}
                                 onChange={(e) => setFolderSearch(e.target.value)}
@@ -373,7 +376,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                                 <div className="mt-2">
                                     {isSearchingFolders ? (
                                         <div className="px-4 py-4 text-center text-gray-500 text-xs italic">
-                                            Searching...
+                                            {t('searching')}
                                         </div>
                                     ) : searchResults.length > 0 ? (
                                         searchResults.map((result) => (
@@ -395,7 +398,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                                         ))
                                     ) : (
                                         <div className="px-4 py-4 text-center text-gray-500 text-xs italic">
-                                            No folders match "{folderSearch}"
+                                            {t('noFoldersMatch', { search: folderSearch })}
                                         </div>
                                     )}
                                 </div>
@@ -479,7 +482,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                                     ))}
                                     {favorites.length === 0 && (
                                         <div className="px-4 py-8 text-center text-gray-600 text-sm italic">
-                                            No folders pinned
+                                            {t('noFoldersPinned')}
                                         </div>
                                     )}
                                 </>
@@ -498,7 +501,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                         >
                             <div className="text-xs font-bold uppercase tracking-wider flex items-center gap-1 truncate flex-1 min-w-0">
                                 <Heart size={12} className="shrink-0" />
-                                <span className="truncate">Fav Images</span>
+                                <span className="truncate">{t('favImages')}</span>
                             </div>
                         </div>
                     </div>
@@ -507,7 +510,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                     <div className="flex-1 overflow-y-auto px-2 pt-2 scrollbar-thin scrollbar-thumb-neutral-700 min-h-0 bg-neutral-800/50">
                         <div className="px-2 mb-2">
                             <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex justify-between items-center h-6">
-                                <span className="flex items-center gap-1"><Tags size={12} /> Tags</span>
+                                <span className="flex items-center gap-1"><Tags size={12} /> {t('tags')}</span>
 
                                 {/* Filter Mode Toggle */}
                                 {selectedTags.size > 1 && (
@@ -515,14 +518,14 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                                         <button
                                             onClick={() => handleModeChange('union')}
                                             className={`p-1.5 rounded transition-colors ${filterMode === 'union' ? 'bg-neutral-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                                            title="Union (OR): Match any selected tag"
+                                            title={t('unionMode')}
                                         >
                                             <Plus size={14} />
                                         </button>
                                         <button
                                             onClick={() => handleModeChange('intersection')}
                                             className={`p-1.5 rounded transition-colors ${filterMode === 'intersection' ? 'bg-neutral-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                                            title="Intersection (AND): Match all selected tags"
+                                            title={t('intersectionMode')}
                                         >
                                             <Minus size={14} />
                                         </button>
@@ -533,7 +536,7 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                             <div className="relative mb-2">
                                 <input
                                     type="text"
-                                    placeholder="Search or Create Tag..."
+                                    placeholder={t('searchCreateTag')}
                                     className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 pl-7 text-xs text-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
                                     value={tagSearch}
                                     onChange={(e) => setTagSearch(e.target.value)}
@@ -546,12 +549,12 @@ const Sidebar = ({ onFolderSelect, currentPath, onTagSelect, setConfirmModal, lo
                             <div className="space-y-1 pb-4">
                                 {filteredTags.length === 0 && tagSearch && (
                                     <div className="text-gray-500 text-xs px-2 py-1 italic flex items-center gap-1">
-                                        <Plus size={10} /> Press Enter to create "{tagSearch}"
+                                        <Plus size={10} /> {t('pressEnterCreate', { search: tagSearch })}
                                     </div>
                                 )}
                                 {filteredTags.length === 0 && !tagSearch && (
                                     <div className="text-gray-500 text-xs px-2 py-1 italic">
-                                        No tags
+                                        {t('noTags')}
                                     </div>
                                 )}
 
