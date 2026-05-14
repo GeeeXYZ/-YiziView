@@ -11,7 +11,7 @@ export default function PluginMenuDropdown() {
     // Fetch actions and custom shortcuts on mount & subscribe to changes
     useEffect(() => {
         const updateActions = () => {
-            setActions(PluginEngine.getActions());
+            setActions(PluginEngine.getActions().filter(a => !a.showInContextMenu));
             try {
                 const stored = localStorage.getItem('yizi_plugin_shortcuts');
                 if (stored) setCustomShortcuts(JSON.parse(stored));

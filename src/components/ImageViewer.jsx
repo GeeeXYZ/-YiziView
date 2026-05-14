@@ -77,6 +77,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     const [isAutoPlay, setIsAutoPlay] = useState(false);
     const [isFav, setIsFav] = useState(false);
     const containerRef = useRef(null);
+    const pointerDownTargetRef = useRef(null);
 
     // ===== Edit Mode =====
     const [showToolbar, setShowToolbar] = useState(() => {
@@ -455,58 +456,72 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         img.crossOrigin = 'anonymous';
         img.onload = () => {
             baseImageRef.current = img;
-            drawRotatedCanvas();
-            setTimeout(() => {
-                if (editTool === 'brush') setupDrawCanvas();
-            }, 50);
+            // Use rAF to ensure the new canvas DOM is committed after tool switch
+            requestAnimationFrame(() => {
+                drawRotatedCanvas();
+                if (editTool === 'brush') {
+                    setTimeout(setupDrawCanvas, 50);
+                }
+            });
         };
         img.onerror = () => console.error('Failed to load image for rotation');
         img.src = previewObjectURL || getActiveUrl();
     }, [isEditing, image, forceImageUrl, previewObjectURL, editTool]);
 
     // ===== Crop Box Initialization =====
+    // Padding ratio for outpaint cropping: 0.5 = 50% of image size on each side
+    const CROP_PAD = 0.5;
+    // The padded canvas percentage for the image area:
+    // padFrac = CROP_PAD / (1 + 2*CROP_PAD). For CROP_PAD=0.5: padFrac=0.25
+    // So image area = x:25%, y:25%, w:50%, h:50% of the canvas.
+    const PAD_FRAC = CROP_PAD / (1 + 2 * CROP_PAD);
+    const IMG_PERCENT = (1 - 2 * PAD_FRAC) * 100; // 50% for CROP_PAD=0.5
+    const IMG_OFFSET = PAD_FRAC * 100;              // 25% for CROP_PAD=0.5
+
     useEffect(() => {
         if (!isEditing || editTool !== 'crop') return;
         
         const initTimer = setTimeout(() => {
-            if (!imgRef.current || !imgRef.current.parentElement) return;
+            if (!imgRef.current) return;
             const pCrop = percentCropRef.current;
             const needsInit = !pCrop || pCrop.width === 0 || (pCrop.width === 100 && pCrop.height === 100 && pCrop.x === 0 && pCrop.y === 0);
             
             if (needsInit) {
-                const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-                const imgRect = imgRef.current.getBoundingClientRect();
-                if (imgRect.width === 0 || wrapperRect.width === 0) return;
-                
-                let initWidthPx = imgRect.width;
-                let initHeightPx = imgRect.height;
-                
-                let pxCrop;
+                let newPercentCrop;
                 if (aspect) {
-                    initWidthPx = imgRect.width * 0.9;
-                    if (initWidthPx / aspect > imgRect.height) initWidthPx = imgRect.height * aspect;
-                    pxCrop = centerCrop(
-                        makeAspectCrop({ unit: 'px', width: initWidthPx }, aspect, wrapperRect.width, wrapperRect.height),
-                        wrapperRect.width, wrapperRect.height
-                    );
+                    // For aspect ratio presets, compute within the image area
+                    // The image area in percent: x=IMG_OFFSET, y=IMG_OFFSET, w=IMG_PERCENT, h=IMG_PERCENT
+                    // But the canvas aspect ratio is same as image (padding is proportional),
+                    // so we can use the canvas pixel dims directly.
+                    const canvasW = imgRef.current.width;
+                    const canvasH = imgRef.current.height;
+                    const imgW = canvasW * (1 - 2 * PAD_FRAC);
+                    const imgH = canvasH * (1 - 2 * PAD_FRAC);
+                    let cropW = imgW * 0.9;
+                    if (cropW / aspect > imgH) cropW = imgH * aspect;
+                    const cropH = cropW / aspect;
+                    // Center in canvas
+                    const cropX = (canvasW - cropW) / 2;
+                    const cropY = (canvasH - cropH) / 2;
+                    newPercentCrop = {
+                        unit: '%',
+                        x: (cropX / canvasW) * 100,
+                        y: (cropY / canvasH) * 100,
+                        width: (cropW / canvasW) * 100,
+                        height: (cropH / canvasH) * 100
+                    };
                 } else {
-                    pxCrop = {
-                        x: imgRect.left - wrapperRect.left,
-                        y: imgRect.top - wrapperRect.top,
-                        width: initWidthPx,
-                        height: initHeightPx
+                    // Free mode: cover the image area exactly
+                    newPercentCrop = {
+                        unit: '%',
+                        x: IMG_OFFSET,
+                        y: IMG_OFFSET,
+                        width: IMG_PERCENT,
+                        height: IMG_PERCENT
                     };
                 }
-                
-                const newPercentCrop = {
-                    unit: '%',
-                    x: (pxCrop.x / wrapperRect.width) * 100,
-                    y: (pxCrop.y / wrapperRect.height) * 100,
-                    width: (pxCrop.width / wrapperRect.width) * 100,
-                    height: (pxCrop.height / wrapperRect.height) * 100
-                };
                 setCrop(newPercentCrop);
-                setCompletedCrop(pxCrop);
+                setCompletedCrop(null);
                 percentCropRef.current = newPercentCrop;
             }
         }, 150);
@@ -532,22 +547,49 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             ch = Math.round(img.width * absSin + img.height * absCos);
         }
 
-        canvas.width = cw;
-        canvas.height = ch;
+        // In crop mode, add padding around the image for outpainting
+        const isCropMode = editTool === 'crop';
+        const padX = isCropMode ? Math.round(cw * CROP_PAD) : 0;
+        const padY = isCropMode ? Math.round(ch * CROP_PAD) : 0;
+        const totalW = cw + padX * 2;
+        const totalH = ch + padY * 2;
+
+        canvas.width = totalW;
+        canvas.height = totalH;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
+
+        // Fill padding area with checkerboard pattern to indicate outpaint zone
+        if (isCropMode) {
+            // Draw bg color base
+            ctx.fillStyle = cropBgColor;
+            ctx.fillRect(0, 0, totalW, totalH);
+
+            // Draw subtle checkerboard in padding area only
+            const gridSize = 12;
+            ctx.fillStyle = 'rgba(128,128,128,0.08)';
+            for (let gy = 0; gy < totalH; gy += gridSize) {
+                for (let gx = 0; gx < totalW; gx += gridSize) {
+                    // Skip the image area
+                    if (gx >= padX && gx < padX + cw && gy >= padY && gy < padY + ch) continue;
+                    if ((Math.floor(gx / gridSize) + Math.floor(gy / gridSize)) % 2 === 0) {
+                        ctx.fillRect(gx, gy, gridSize, gridSize);
+                    }
+                }
+            }
+        }
         
         const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
         if (hasAdjustments) {
             ctx.filter = `brightness(${adjustBrightness}%) contrast(${adjustContrast}%) saturate(${adjustSaturation}%) hue-rotate(${adjustHue}deg)`;
         }
 
-        ctx.translate(cw / 2, ch / 2);
+        ctx.translate(padX + cw / 2, padY + ch / 2);
         ctx.rotate(rad);
         ctx.drawImage(img, -img.width / 2, -img.height / 2);
     };
 
-    useEffect(() => { drawRotatedCanvas(); }, [rotation, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, previewObjectURL]);
+    useEffect(() => { drawRotatedCanvas(); }, [rotation, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, previewObjectURL, editTool, cropBgColor]);
 
     // ===== Selective Saturation Preview Generate =====
     const updateSelectivePreview = useCallback(() => {
@@ -903,27 +945,26 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             localStorage.removeItem('last_crop_target_h');
         }
 
-        if (imgRef.current && imgRef.current.parentElement && editTool === 'crop') {
-            const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-            const imgRect = imgRef.current.getBoundingClientRect();
-            
+        if (imgRef.current && editTool === 'crop') {
             if (newAspect) {
-                let initWidthPx = completedCrop ? completedCrop.width : (imgRect.width * 0.9);
-                if (initWidthPx / newAspect > imgRect.height) initWidthPx = imgRect.height * newAspect;
-                
-                const pxCrop = centerCrop(
-                    makeAspectCrop({ unit: 'px', width: initWidthPx }, newAspect, wrapperRect.width, wrapperRect.height),
-                    wrapperRect.width, wrapperRect.height
-                );
+                const canvasW = imgRef.current.width;
+                const canvasH = imgRef.current.height;
+                const imgW = canvasW * (1 - 2 * PAD_FRAC);
+                const imgH = canvasH * (1 - 2 * PAD_FRAC);
+                let cropW = imgW * 0.9;
+                if (cropW / newAspect > imgH) cropW = imgH * newAspect;
+                const cropH = cropW / newAspect;
+                const cropX = (canvasW - cropW) / 2;
+                const cropY = (canvasH - cropH) / 2;
                 const newPercentCrop = {
                     unit: '%',
-                    x: (pxCrop.x / wrapperRect.width) * 100,
-                    y: (pxCrop.y / wrapperRect.height) * 100,
-                    width: (pxCrop.width / wrapperRect.width) * 100,
-                    height: (pxCrop.height / wrapperRect.height) * 100
+                    x: (cropX / canvasW) * 100,
+                    y: (cropY / canvasH) * 100,
+                    width: (cropW / canvasW) * 100,
+                    height: (cropH / canvasH) * 100
                 };
                 setCrop(newPercentCrop);
-                setCompletedCrop(pxCrop);
+                setCompletedCrop(null);
                 percentCropRef.current = newPercentCrop;
             }
         }
@@ -939,26 +980,27 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
     const applyFreeCropRatio = (w, h) => {
         // In Free mode with both dimensions set, reshape the crop box to match w:h ratio
-        if (aspect || !imgRef.current || !imgRef.current.parentElement) return;
+        if (aspect || !imgRef.current) return;
         if (!w || !h || w <= 0 || h <= 0) return;
         const ratio = w / h;
-        const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-        const imgRect = imgRef.current.getBoundingClientRect();
-        let initWidthPx = imgRect.width * 0.9;
-        if (initWidthPx / ratio > imgRect.height) initWidthPx = imgRect.height * ratio;
-        const pxCrop = centerCrop(
-            makeAspectCrop({ unit: 'px', width: initWidthPx }, ratio, wrapperRect.width, wrapperRect.height),
-            wrapperRect.width, wrapperRect.height
-        );
+        const canvasW = imgRef.current.width;
+        const canvasH = imgRef.current.height;
+        const imgW = canvasW * (1 - 2 * PAD_FRAC);
+        const imgH = canvasH * (1 - 2 * PAD_FRAC);
+        let cropW = imgW * 0.9;
+        if (cropW / ratio > imgH) cropW = imgH * ratio;
+        const cropH = cropW / ratio;
+        const cropX = (canvasW - cropW) / 2;
+        const cropY = (canvasH - cropH) / 2;
         const newPercentCrop = {
             unit: '%',
-            x: (pxCrop.x / wrapperRect.width) * 100,
-            y: (pxCrop.y / wrapperRect.height) * 100,
-            width: (pxCrop.width / wrapperRect.width) * 100,
-            height: (pxCrop.height / wrapperRect.height) * 100
+            x: (cropX / canvasW) * 100,
+            y: (cropY / canvasH) * 100,
+            width: (cropW / canvasW) * 100,
+            height: (cropH / canvasH) * 100
         };
         setCrop(newPercentCrop);
-        setCompletedCrop(pxCrop);
+        setCompletedCrop(null);
         percentCropRef.current = newPercentCrop;
     };
 
@@ -1108,27 +1150,30 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                 let isReverseCrop = false;
                 
                 if (imgRef.current) {
-                    natW = imgRef.current.width;
-                    natH = imgRef.current.height;
+                    // Canvas includes padding. Get the actual image dimensions.
+                    const canvasW = imgRef.current.width;
+                    const canvasH = imgRef.current.height;
+                    const padFrac = CROP_PAD / (1 + 2 * CROP_PAD);
+                    const padPxW = Math.round(canvasW * padFrac);
+                    const padPxH = Math.round(canvasH * padFrac);
+                    
+                    // Exactly reverse the padding logic to avoid 1px rounding errors
+                    natW = canvasW - padPxW * 2;
+                    natH = canvasH - padPxH * 2;
+
                     let activePercentCrop = percentCropRef.current || { x: 0, y: 0, width: 100, height: 100 };
-                    const imgRect = imgRef.current.getBoundingClientRect();
-                    const wrapperRect = imgRef.current.parentElement ? imgRef.current.parentElement.getBoundingClientRect() : imgRect;
+                    
+                    // percentCrop is relative to the canvas. Map directly to intrinsic canvas pixels.
+                    const canvasPxX = (activePercentCrop.x / 100) * canvasW;
+                    const canvasPxY = (activePercentCrop.y / 100) * canvasH;
+                    const canvasPxW = (activePercentCrop.width / 100) * canvasW;
+                    const canvasPxH = (activePercentCrop.height / 100) * canvasH;
 
-                    const scaleX = natW / imgRect.width;
-                    const scaleY = natH / imgRect.height;
-
-                    const cropClientX = wrapperRect.left + (activePercentCrop.x / 100) * wrapperRect.width;
-                    const cropClientY = wrapperRect.top + (activePercentCrop.y / 100) * wrapperRect.height;
-                    const cropClientW = (activePercentCrop.width / 100) * wrapperRect.width;
-                    const cropClientH = (activePercentCrop.height / 100) * wrapperRect.height;
-
-                    const relativeX = cropClientX - imgRect.left;
-                    const relativeY = cropClientY - imgRect.top;
-
-                    cx = Math.round(relativeX * scaleX);
-                    cy = Math.round(relativeY * scaleY);
-                    cw = Math.round(cropClientW * scaleX);
-                    ch = Math.round(cropClientH * scaleY);
+                    // Subtract padding to get image-relative coords
+                    cx = Math.round(canvasPxX) - padPxW;
+                    cy = Math.round(canvasPxY) - padPxH;
+                    cw = Math.round(canvasPxW);
+                    ch = Math.round(canvasPxH);
                     
                     isReverseCrop = cx < 0 || cy < 0 || (cx + cw) > natW || (cy + ch) > natH;
                 }
@@ -1277,7 +1322,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         <div
             ref={containerRef}
             className={`image-viewer-container ${contained ? 'absolute' : 'fixed'} inset-0 z-[200] bg-black/95 flex items-center justify-center cursor-default overflow-hidden`}
-            onClick={onClose}
+            onClick={(e) => {
+                if (e.target === e.currentTarget && pointerDownTargetRef.current === e.currentTarget) {
+                    onClose();
+                }
+            }}
+            onPointerDown={(e) => {
+                pointerDownTargetRef.current = e.target;
+            }}
             tabIndex={-1}
         >
             {/* Top Left Info (File Name & Resolution) */}
@@ -1410,80 +1462,40 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 height: '100%',
                                 padding: '1rem'
                             }}>
-                                <ReactCrop
-                                    crop={crop}
-                                    disabled={editTool !== 'crop'}
-                                    locked={editTool !== 'crop'}
-                                    onChange={(c, percentCrop) => {
-                                        if (imgRef.current && imgRef.current.parentElement) {
-                                            // Snapping logic to the actual image boundaries
-                                            const wrapperRect = imgRef.current.parentElement.getBoundingClientRect();
-                                            const imgRect = imgRef.current.getBoundingClientRect();
-                                            
-                                            // Image bounds relative to wrapper
-                                            const imgLeft = ((imgRect.left - wrapperRect.left) / wrapperRect.width) * 100;
-                                            const imgTop = ((imgRect.top - wrapperRect.top) / wrapperRect.height) * 100;
-                                            const imgWidth = (imgRect.width / wrapperRect.width) * 100;
-                                            const imgHeight = (imgRect.height / wrapperRect.height) * 100;
-                                            const imgRight = imgLeft + imgWidth;
-                                            const imgBottom = imgTop + imgHeight;
-
-                                            let newP = { ...percentCrop };
-                                            const snapThresholdPx = 10;
-                                            const snapThresholdX = (snapThresholdPx / wrapperRect.width) * 100;
-                                            const snapThresholdY = (snapThresholdPx / wrapperRect.height) * 100;
-
-                                            const prevP = percentCropRef.current;
-                                            const isTranslating = prevP && 
-                                                Math.abs(prevP.width - newP.width) < 0.001 && 
-                                                Math.abs(prevP.height - newP.height) < 0.001;
-
-                                            if (isTranslating) {
-                                                if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
-                                                    newP.x = imgLeft;
-                                                } else if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
-                                                    newP.x = imgRight - newP.width;
-                                                }
-                                                if (Math.abs(newP.y - imgTop) < snapThresholdY) {
-                                                    newP.y = imgTop;
-                                                } else if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
-                                                    newP.y = imgBottom - newP.height;
-                                                }
-                                            } else if (!aspect) {
-                                                if (Math.abs(newP.x - imgLeft) < snapThresholdX) {
-                                                    newP.width += (newP.x - imgLeft);
-                                                    newP.x = imgLeft;
-                                                }
-                                                if (Math.abs((newP.x + newP.width) - imgRight) < snapThresholdX) {
-                                                    newP.width = imgRight - newP.x;
-                                                }
-                                                if (Math.abs(newP.y - imgTop) < snapThresholdY) {
-                                                    newP.height += (newP.y - imgTop);
-                                                    newP.y = imgTop;
-                                                }
-                                                if (Math.abs((newP.y + newP.height) - imgBottom) < snapThresholdY) {
-                                                    newP.height = imgBottom - newP.y;
-                                                }
-                                            }
-                                            setCrop(newP);
-                                            percentCropRef.current = newP;
-                                        } else {
+                                {/* ===== Crop Tool: ReactCrop wrapper (only in crop mode) ===== */}
+                                {editTool === 'crop' && (
+                                    <ReactCrop
+                                        crop={crop}
+                                        onChange={(c, percentCrop) => {
                                             setCrop(percentCrop);
                                             percentCropRef.current = percentCrop;
-                                        }
-                                    }}
-                                    onComplete={(c, percentCrop) => {
-                                        setCompletedCrop(c);
-                                        percentCropRef.current = crop || percentCrop;
-                                    }}
-                                    aspect={effectiveAspect}
-                                    style={{ 
-                                        display: 'flex', 
-                                        maxWidth: '100%', 
-                                        maxHeight: '100%',
-                                        pointerEvents: editTool === 'crop' ? 'auto' : 'none'
-                                    }}
-                                >
+                                        }}
+                                        onComplete={(c, percentCrop) => {
+                                            setCompletedCrop(c);
+                                            percentCropRef.current = crop || percentCrop;
+                                        }}
+                                        aspect={effectiveAspect}
+                                        style={{ 
+                                            display: 'flex',
+                                            lineHeight: 0,
+                                            maxWidth: '100%', 
+                                            maxHeight: '100%'
+                                        }}
+                                    >
+                                        <canvas
+                                            ref={imgRef}
+                                            style={{ 
+                                                maxHeight: '100%', 
+                                                maxWidth: '100%',
+                                                objectFit: 'contain'
+                                            }}
+                                            className="select-none block"
+                                        />
+                                    </ReactCrop>
+                                )}
+
+                                {/* ===== Brush Tool: plain canvas + drawing overlay ===== */}
+                                {editTool === 'brush' && (
                                     <div className="relative" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                                         <canvas
                                             ref={imgRef}
@@ -1495,16 +1507,30 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                             }}
                                             className="select-none block"
                                         />
-                                        {editTool === 'brush' && (
-                                            <canvas
-                                                ref={drawCanvasRef}
-                                                className="absolute inset-0"
-                                                style={{ cursor: isEraser ? 'cell' : 'crosshair', pointerEvents: 'auto', width: '100%', height: '100%' }}
-                                                onPointerDown={handleDrawStart}
-                                            />
-                                        )}
+                                        <canvas
+                                            ref={drawCanvasRef}
+                                            className="absolute inset-0"
+                                            style={{ cursor: isEraser ? 'cell' : 'crosshair', pointerEvents: 'auto', width: '100%', height: '100%' }}
+                                            onPointerDown={handleDrawStart}
+                                        />
                                     </div>
-                                </ReactCrop>
+                                )}
+
+                                {/* ===== Adjust Tool: plain canvas only ===== */}
+                                {editTool === 'adjust' && (
+                                    <div className="relative" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+                                        <canvas
+                                            ref={imgRef}
+                                            style={{ 
+                                                maxHeight: '100%', 
+                                                maxWidth: '100%',
+                                                objectFit: 'contain',
+                                                boxShadow: '0 0 20px rgba(0,0,0,0.5)'
+                                            }}
+                                            className="select-none block"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="relative w-full h-full flex items-center justify-center">

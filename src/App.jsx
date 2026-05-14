@@ -665,6 +665,7 @@ function App() {
             renderPanel={renderPanel}
           />
           <DynamicBottomDock />
+          <ExtensionSlot name="global-overlay" className="absolute top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none" />
         </div>
         <DynamicRightDock />
       </div>

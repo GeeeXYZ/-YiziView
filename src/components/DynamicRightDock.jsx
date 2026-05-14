@@ -3,11 +3,14 @@ import { PluginEngine } from '@/managers/PluginEngine';
 
 export default function DynamicRightDock() {
     const [components, setComponents] = useState([]);
-    const [width, setWidth] = useState(() => {
-        return parseInt(localStorage.getItem('yizi_right_dock_width')) || 350;
-    });
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef(null);
+
+    // Get the currently active component (should be only one now)
+    const activeComponent = components.length > 0 ? components[components.length - 1] : null;
+    const activeName = activeComponent ? (activeComponent.displayName || activeComponent.name || 'default') : 'default';
+
+    const [width, setWidth] = useState(350);
 
     // Subscribe to PluginEngine for right-dock components
     useEffect(() => {
@@ -17,6 +20,20 @@ export default function DynamicRightDock() {
         updateComponents();
         return PluginEngine.subscribe('right-dock', updateComponents);
     }, []);
+
+    // Load independent width when the active component changes
+    useEffect(() => {
+        if (activeComponent) {
+            const savedWidth = parseInt(localStorage.getItem(`yizi_right_dock_width_${activeName}`));
+            if (savedWidth) {
+                setWidth(savedWidth);
+            } else if (activeName === 'BgRemoverWidget') {
+                setWidth(Math.round(window.innerWidth * 0.16));
+            } else {
+                setWidth(350);
+            }
+        }
+    }, [activeName, activeComponent]);
 
     const handleMouseDown = useCallback((e) => {
         e.preventDefault();
@@ -41,9 +58,11 @@ export default function DynamicRightDock() {
         if (!isResizing) return;
         setIsResizing(false);
         document.body.style.cursor = 'default';
-        // Persist the user's preferred dock width
-        localStorage.setItem('yizi_right_dock_width', width.toString());
-    }, [isResizing, width]);
+        // Persist the user's preferred dock width for this specific plugin
+        if (activeName) {
+            localStorage.setItem(`yizi_right_dock_width_${activeName}`, width.toString());
+        }
+    }, [isResizing, width, activeName]);
 
     useEffect(() => {
         if (isResizing) {

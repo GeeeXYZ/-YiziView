@@ -42,3 +42,4 @@ body {
   50% { transform: translateX(150%) skewX(30deg); }
   100% { transform: translateX(150%) skewX(30deg); }
 }
+

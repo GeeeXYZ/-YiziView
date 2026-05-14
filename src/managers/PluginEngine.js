@@ -17,6 +17,10 @@ class PluginEngineCore {
         if (!this.slots.has(slotName)) {
             this.slots.set(slotName, new Set());
         }
+        // Force exclusive registration for right-dock to only allow one sidebar at a time
+        if (slotName === 'right-dock') {
+            this.slots.get(slotName).clear();
+        }
         this.slots.get(slotName).add(Component);
         this._notifySubscribers(slotName);
     }

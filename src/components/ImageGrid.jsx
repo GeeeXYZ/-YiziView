@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { FileSystem } from '@/managers/FileSystem'
+import { PluginEngine } from '@/managers/PluginEngine'
 import ContextMenu from '@/components/ui/ContextMenu';
 import {
     Image as ImageIcon,
@@ -14,7 +15,8 @@ import {
     Clipboard,
     Heart,
     Edit2,
-    RefreshCw
+    RefreshCw,
+    Wand2
 } from 'lucide-react';
 import Thumbnail from './Thumbnail';
 import InputModal from '@/components/ui/InputModal';
@@ -760,11 +762,22 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
             </div>
 
             {contextMenu && (
-                <ContextMenu
-                    x={contextMenu.x}
-                    y={contextMenu.y}
-                    onClose={() => setContextMenu(null)}
-                    options={[
+                (() => {
+                    const pluginContextActions = PluginEngine.getActions()
+                        .filter(a => a.showInContextMenu)
+                        .map(a => ({
+                            label: a.name,
+                            icon: <Wand2 size={14} className="text-blue-400" />,
+                            onClick: () => {
+                                const targetPath = contextMenu.filePath;
+                                const affectedPaths = contextMenu.affectedPaths || (targetPath ? [targetPath] : []);
+                                setContextMenu(null);
+                                a.onExecute(affectedPaths);
+                            },
+                            disabled: !contextMenu.filePath
+                        }));
+
+                    const baseOptions = [
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut'), disabled: !contextMenu.filePath },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleContextOption('copy'), disabled: !contextMenu.filePath },
                         { label: 'Paste', icon: <Clipboard size={14} />, onClick: () => handleContextOption('paste'), disabled: !isRealPath },
@@ -778,8 +791,21 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                         { label: 'Show in Explorer', icon: <Folder size={14} />, onClick: () => handleContextOption('reveal'), disabled: !contextMenu.filePath && !isRealPath },
                         { type: 'divider' },
                         { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => handleContextOption('delete'), danger: true, disabled: !contextMenu.filePath }
-                    ]}
-                />
+                    ];
+
+                    const finalOptions = pluginContextActions.length > 0 
+                        ? [...pluginContextActions, { type: 'divider' }, ...baseOptions]
+                        : baseOptions;
+
+                    return (
+                        <ContextMenu
+                            x={contextMenu.x}
+                            y={contextMenu.y}
+                            onClose={() => setContextMenu(null)}
+                            options={finalOptions}
+                        />
+                    );
+                })()
             )}
 
             {renameModal.isOpen && (
