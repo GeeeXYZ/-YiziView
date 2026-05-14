@@ -1463,36 +1463,37 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 padding: '1rem'
                             }}>
                                 <div style={{ position: 'relative', display: 'inline-flex', maxWidth: '100%', maxHeight: '100%' }}>
-                                    <canvas
-                                        ref={imgRef}
+                                    <ReactCrop
+                                        crop={editTool === 'crop' ? crop : undefined}
+                                        onChange={(c, percentCrop) => {
+                                            setCrop(percentCrop);
+                                            percentCropRef.current = percentCrop;
+                                        }}
+                                        onComplete={(c, percentCrop) => {
+                                            setCompletedCrop(c);
+                                            percentCropRef.current = percentCrop || crop;
+                                        }}
+                                        aspect={effectiveAspect}
+                                        locked={editTool !== 'crop'}
                                         style={{ 
-                                            display: 'block', 
+                                            display: 'flex', 
                                             maxWidth: '100%', 
                                             maxHeight: '100%',
-                                            ...(editTool === 'adjust' || editTool === 'brush' ? { boxShadow: '0 0 20px rgba(0,0,0,0.5)' } : {})
+                                            pointerEvents: editTool === 'crop' ? 'auto' : 'none'
                                         }}
-                                        className="select-none"
-                                    />
-                                    
-                                    {editTool === 'crop' && (
-                                        <div className="absolute inset-0 pointer-events-auto">
-                                            <ReactCrop
-                                                crop={crop}
-                                                onChange={(c, percentCrop) => {
-                                                    setCrop(percentCrop);
-                                                    percentCropRef.current = percentCrop;
-                                                }}
-                                                onComplete={(c, percentCrop) => {
-                                                    setCompletedCrop(c);
-                                                    percentCropRef.current = crop || percentCrop;
-                                                }}
-                                                aspect={effectiveAspect}
-                                                style={{ width: '100%', height: '100%' }}
-                                            >
-                                                <div style={{ width: '100%', height: '100%' }} />
-                                            </ReactCrop>
-                                        </div>
-                                    )}
+                                        className={editTool !== 'crop' ? 'react-crop-hidden' : ''}
+                                    >
+                                        <canvas
+                                            ref={imgRef}
+                                            style={{ 
+                                                display: 'block', 
+                                                maxWidth: '100%', 
+                                                maxHeight: '100%',
+                                                ...(editTool === 'adjust' || editTool === 'brush' ? { boxShadow: '0 0 20px rgba(0,0,0,0.5)' } : {})
+                                            }}
+                                            className="select-none"
+                                        />
+                                    </ReactCrop>
 
                                     {editTool === 'brush' && (
                                         <canvas
