@@ -1462,75 +1462,47 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 height: '100%',
                                 padding: '1rem'
                             }}>
-                                {/* ===== Crop Tool: ReactCrop wrapper (only in crop mode) ===== */}
-                                {editTool === 'crop' && (
-                                    <ReactCrop
-                                        crop={crop}
-                                        onChange={(c, percentCrop) => {
-                                            setCrop(percentCrop);
-                                            percentCropRef.current = percentCrop;
-                                        }}
-                                        onComplete={(c, percentCrop) => {
-                                            setCompletedCrop(c);
-                                            percentCropRef.current = crop || percentCrop;
-                                        }}
-                                        aspect={effectiveAspect}
+                                <div style={{ position: 'relative', display: 'inline-flex', maxWidth: '100%', maxHeight: '100%' }}>
+                                    <canvas
+                                        ref={imgRef}
                                         style={{ 
-                                            display: 'flex',
-                                            lineHeight: 0,
+                                            display: 'block', 
                                             maxWidth: '100%', 
-                                            maxHeight: '100%'
+                                            maxHeight: '100%',
+                                            ...(editTool === 'adjust' || editTool === 'brush' ? { boxShadow: '0 0 20px rgba(0,0,0,0.5)' } : {})
                                         }}
-                                    >
-                                        <canvas
-                                            ref={imgRef}
-                                            style={{ 
-                                                maxHeight: '100%', 
-                                                maxWidth: '100%',
-                                                objectFit: 'contain'
-                                            }}
-                                            className="select-none block"
-                                        />
-                                    </ReactCrop>
-                                )}
+                                        className="select-none"
+                                    />
+                                    
+                                    {editTool === 'crop' && (
+                                        <div className="absolute inset-0 pointer-events-auto">
+                                            <ReactCrop
+                                                crop={crop}
+                                                onChange={(c, percentCrop) => {
+                                                    setCrop(percentCrop);
+                                                    percentCropRef.current = percentCrop;
+                                                }}
+                                                onComplete={(c, percentCrop) => {
+                                                    setCompletedCrop(c);
+                                                    percentCropRef.current = crop || percentCrop;
+                                                }}
+                                                aspect={effectiveAspect}
+                                                style={{ width: '100%', height: '100%' }}
+                                            >
+                                                <div style={{ width: '100%', height: '100%' }} />
+                                            </ReactCrop>
+                                        </div>
+                                    )}
 
-                                {/* ===== Brush Tool: plain canvas + drawing overlay ===== */}
-                                {editTool === 'brush' && (
-                                    <div className="relative" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-                                        <canvas
-                                            ref={imgRef}
-                                            style={{ 
-                                                maxHeight: '100%', 
-                                                maxWidth: '100%',
-                                                objectFit: 'contain',
-                                                boxShadow: '0 0 20px rgba(0,0,0,0.5)'
-                                            }}
-                                            className="select-none block"
-                                        />
+                                    {editTool === 'brush' && (
                                         <canvas
                                             ref={drawCanvasRef}
-                                            className="absolute inset-0"
-                                            style={{ cursor: isEraser ? 'cell' : 'crosshair', pointerEvents: 'auto', width: '100%', height: '100%' }}
+                                            className="absolute inset-0 pointer-events-auto"
+                                            style={{ width: '100%', height: '100%', cursor: isEraser ? 'cell' : 'crosshair' }}
                                             onPointerDown={handleDrawStart}
                                         />
-                                    </div>
-                                )}
-
-                                {/* ===== Adjust Tool: plain canvas only ===== */}
-                                {editTool === 'adjust' && (
-                                    <div className="relative" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-                                        <canvas
-                                            ref={imgRef}
-                                            style={{ 
-                                                maxHeight: '100%', 
-                                                maxWidth: '100%',
-                                                objectFit: 'contain',
-                                                boxShadow: '0 0 20px rgba(0,0,0,0.5)'
-                                            }}
-                                            className="select-none block"
-                                        />
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <div className="relative w-full h-full flex items-center justify-center">
