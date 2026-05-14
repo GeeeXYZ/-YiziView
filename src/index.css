@@ -43,3 +43,12 @@ body {
   100% { transform: translateX(150%) skewX(30deg); }
 }
 
+/* Hide ReactCrop overlay when not in crop mode while keeping the wrapper intact */
+.react-crop-hidden .ReactCrop__crop-selection,
+.react-crop-hidden .ReactCrop__drag-elements,
+.react-crop-hidden .ReactCrop__rule-of-thirds {
+  display: none !important;
+}
+.react-crop-hidden {
+  cursor: default !important;
+}
