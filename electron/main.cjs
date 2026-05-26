@@ -49,9 +49,10 @@ autoUpdater.forceDevUpdateConfig = true; // Allow checking in dev mode
 
 const watchers = new Map(); // panelId -> watcher instance
 
-// Register media scheme as privileged
+// Register schemes as privileged
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { secure: true, supportFetchAPI: true, standard: true, bypassCSP: true } }
+  { scheme: 'media', privileges: { secure: true, supportFetchAPI: true, standard: true, bypassCSP: true } },
+  { scheme: 'yiziview-plugin', privileges: { secure: true, supportFetchAPI: true, standard: true, bypassCSP: true } }
 ]);
 
 // Prevent garbage collection
@@ -185,19 +186,24 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Clear old update cache immediately on startup to prevent stale updates and checksum mismatches
+  // Initialize plugins FIRST (includes OTA file swap on disk)
+  // Must happen BEFORE cache clearing so that stale bytecode for old plugin URLs is purged
+  await pluginManager.init();
+
+  // Clear all caches after OTA swap to prevent stale code contamination
   try {
     const { session } = require('electron');
-    await session.defaultSession.clearCache(); // prevent caching latest.yml HTTP requests
+    await session.defaultSession.clearCache(); // Clear HTTP disk cache (latest.yml + plugin assets)
+    await session.defaultSession.clearCodeCaches({}); // Clear V8 compiled bytecode cache for ALL URLs
     const updaterCacheDir = path.join(app.getPath('appData'), '../Local', 'yiziview-updater', 'pending');
     await fs.rm(updaterCacheDir, { recursive: true, force: true });
+    if (pluginManager.otaSwapPerformed) {
+      console.log('[PluginManager] Post-swap cache purge complete (HTTP + CodeCache)');
+    }
     console.log('[updater] Successfully cleared old updater temporary files and caches');
   } catch (e) {
     console.log('[updater] Clean up non-critical cache skipped:', e.message);
   }
-
-  // Initialize plugins
-  await pluginManager.init();
 
   // Register protocol for serving local files
   protocol.registerFileProtocol('media', (request, callback) => {
@@ -429,6 +435,10 @@ ipcMain.handle('plugin-open-wx-login', async (event, payload) => {
 
 ipcMain.handle('get-plugins', () => {
     return pluginManager.getRendererPluginsConfig();
+});
+
+ipcMain.handle('get-ota-status', () => {
+    return pluginManager.getOtaStatus();
 });
 
 ipcMain.handle('get-all-plugins', () => {
@@ -1307,21 +1317,26 @@ ipcMain.handle('save-edited-image', async (event, { imagePath, dataUrl, overwrit
     const finalPath = overwrite ? imagePath : path.join(dir, `${basename}_edit_${Date.now()}${ext}`);
 
     // Decode base64 data URL to buffer
-    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const base64Data = dataUrl.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Use sharp to convert to the correct format
-    let pipeline = sharp(buffer);
     const lowerExt = ext.toLowerCase();
-    if (lowerExt === '.jpg' || lowerExt === '.jpeg') {
-      pipeline = pipeline.jpeg({ quality: 95 });
-    } else if (lowerExt === '.png') {
-      pipeline = pipeline.png();
-    } else if (lowerExt === '.webp') {
-      pipeline = pipeline.webp({ quality: 95 });
-    }
+    if (lowerExt === '.svg') {
+      // Direct file write for vector SVGs to bypass Sharp rasterization
+      await fs.writeFile(tempPath, buffer);
+    } else {
+      // Use sharp to convert to the correct format
+      let pipeline = sharp(buffer);
+      if (lowerExt === '.jpg' || lowerExt === '.jpeg') {
+        pipeline = pipeline.jpeg({ quality: 95 });
+      } else if (lowerExt === '.png') {
+        pipeline = pipeline.png();
+      } else if (lowerExt === '.webp') {
+        pipeline = pipeline.webp({ quality: 95 });
+      }
 
-    await pipeline.toFile(tempPath);
+      await pipeline.toFile(tempPath);
+    }
     await fs.rename(tempPath, finalPath);
 
     if (overwrite) {

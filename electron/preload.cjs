@@ -141,7 +141,8 @@ contextBridge.exposeInMainWorld('electron', {
             ipcRenderer.on('plugin-update-progress', subscription);
             return () => ipcRenderer.removeListener('plugin-update-progress', subscription);
         },
-        relaunchApp: () => ipcRenderer.invoke('app-relaunch')
+        relaunchApp: () => ipcRenderer.invoke('app-relaunch'),
+        getOtaStatus: () => ipcRenderer.invoke('get-ota-status')
     },
     onPluginChanged: (callback) => {
         const subscription = () => callback();

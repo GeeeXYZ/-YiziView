@@ -129,6 +129,32 @@ class PluginEngineCore {
         }
 
         try {
+            // Check if an OTA plugin swap just happened on this launch
+            if (window.electron.pluginAPI.getOtaStatus) {
+                try {
+                    const otaStatus = await window.electron.pluginAPI.getOtaStatus();
+                    if (otaStatus && otaStatus.swapPerformed) {
+                        console.log(`[Plugin Engine] OTA swap detected! New version: ${otaStatus.newVersion}. Clearing stale plugin data...`);
+                        // Clear any localStorage keys that might hold stale plugin state
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            // Clear plugin-specific cached data that might conflict with new version
+                            if (key && (key.startsWith('plugin_') || key.startsWith('aistudio_') || key === 'catalog_cache' || key === 'template_cache')) {
+                                keysToRemove.push(key);
+                            }
+                        }
+                        keysToRemove.forEach(key => {
+                            localStorage.removeItem(key);
+                            console.log(`[Plugin Engine] Cleared stale localStorage key: ${key}`);
+                        });
+                    }
+                } catch (otaErr) {
+                    // Non-critical — continue loading
+                    console.warn('Plugin Engine: Could not check OTA status:', otaErr.message);
+                }
+            }
+
             const plugins = await window.electron.pluginAPI.getPlugins();
             console.log('Plugin Engine: Scanning plugins', plugins);
             

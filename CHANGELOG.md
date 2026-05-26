@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v0.9.14
+
+✨ Features
+- Clear V8 Code Cache and HTTP Cache on startup to avoid plugin code contamination
+- Clear stale localStorage keys on plugin OTA swap
+- Reorder startup sequence to ensure correct OTA plugin initialization and cache busting
+
+🐛 Fixes
+- Fix OTA file swap EBUSY locks on Windows
+- Fix potential duplicate plugin folder watcher registration
+
+---
+
+✨ 新特性
+- 启动时自动清理 V8 字节码缓存与 HTTP 缓存，防止旧插件代码残留污染
+- 插件热更新（OTA）后自动清理本地 localStorage 存储
+- 重排启动初始化顺序，确保 OTA 模块先替换后清空缓存
+
+🐛 修复
+- 修复 Windows 系统下 OTA 文件替换时 EBUSY 占用锁死问题
+- 修复插件目录可能重复注册监听器的问题
+
+
 ## v0.9.13
 
 🐛 Fixes

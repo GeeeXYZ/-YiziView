@@ -11,6 +11,8 @@ class PluginManager {
         this.configPath = path.join(app.getPath('userData'), 'plugin_settings.json');
         this.plugins = [];
         this.disabledPlugins = new Set();
+        this.otaSwapPerformed = false;
+        this.otaSwapNewVersion = null;
     }
 
     loadConfig() {
@@ -72,15 +74,81 @@ class PluginManager {
             
             if (fs.existsSync(targetUpdateDir)) {
                 console.log(`[PluginManager] Detected pending OTA update. Executing swap...`);
-                if (fs.existsSync(activePluginDir)) {
-                    // Try to safely remove old plugin
-                    fs.rmSync(activePluginDir, { recursive: true, force: true });
+                let swapAborted = false;
+
+                // --- Phase 1: Verify extraction structure ---
+                let actualUpdateDir = targetUpdateDir;
+                if (!fs.existsSync(path.join(targetUpdateDir, 'manifest.json'))) {
+                    const items = fs.readdirSync(targetUpdateDir);
+                    const dirs = items.filter(i => fs.statSync(path.join(targetUpdateDir, i)).isDirectory());
+                    if (dirs.length === 1 && fs.existsSync(path.join(targetUpdateDir, dirs[0], 'manifest.json'))) {
+                        actualUpdateDir = path.join(targetUpdateDir, dirs[0]);
+                        console.log(`[PluginManager] Detected nested extraction. Using: ${actualUpdateDir}`);
+                    } else {
+                        console.error(`[PluginManager] OTA update package is invalid: manifest.json not found. Aborting swap.`);
+                        try { fs.rmSync(tempUpdatesDir, { recursive: true, force: true }); } catch(e) {}
+                        swapAborted = true;
+                    }
                 }
-                // Atomic swap to active directory
-                fs.renameSync(targetUpdateDir, activePluginDir);
-                // Clean temp
-                fs.rmSync(tempUpdatesDir, { recursive: true, force: true });
-                console.log(`[PluginManager] OTA swap successful!`);
+
+                if (!swapAborted) {
+                    // Read new version for logging
+                    try {
+                        const newManifest = JSON.parse(fs.readFileSync(path.join(actualUpdateDir, 'manifest.json'), 'utf8'));
+                        this.otaSwapNewVersion = newManifest.version;
+                        console.log(`[PluginManager] New plugin version: ${newManifest.version}`);
+                    } catch (e) {
+                        console.warn(`[PluginManager] Could not read new manifest version:`, e.message);
+                    }
+
+                    // --- Phase 2: Safe removal of old plugin ---
+                    const backupDir = path.join(this.pluginsDir, '.ota-backup-Yizi-studio-AIstudio');
+                    try {
+                        if (fs.existsSync(backupDir)) {
+                            fs.rmSync(backupDir, { recursive: true, force: true });
+                        }
+                        if (fs.existsSync(activePluginDir)) {
+                            fs.renameSync(activePluginDir, backupDir);
+                            console.log(`[PluginManager] Old plugin backed up successfully.`);
+                        }
+                    } catch (backupErr) {
+                        console.warn(`[PluginManager] Backup rename failed, trying force delete...`, backupErr.message);
+                        try {
+                            fs.rmSync(activePluginDir, { recursive: true, force: true });
+                        } catch (rmErr) {
+                            console.error(`[PluginManager] CRITICAL: Cannot remove old plugin. Aborting swap.`, rmErr);
+                            swapAborted = true;
+                        }
+                    }
+                }
+
+                if (!swapAborted) {
+                    // --- Phase 3: Move new plugin into place ---
+                    const backupDir = path.join(this.pluginsDir, '.ota-backup-Yizi-studio-AIstudio');
+                    try {
+                        fs.renameSync(actualUpdateDir, activePluginDir);
+                        console.log(`[PluginManager] OTA swap successful! New version: ${this.otaSwapNewVersion}`);
+                        this.otaSwapPerformed = true;
+                    } catch (swapErr) {
+                        console.error(`[PluginManager] CRITICAL: Failed to move new plugin:`, swapErr);
+                        if (fs.existsSync(backupDir)) {
+                            try {
+                                fs.renameSync(backupDir, activePluginDir);
+                                console.log(`[PluginManager] Restored old plugin from backup.`);
+                            } catch (restoreErr) {
+                                console.error(`[PluginManager] FATAL: Failed to restore backup!`, restoreErr);
+                            }
+                        }
+                    }
+
+                    // --- Phase 4: Cleanup ---
+                    try {
+                        if (fs.existsSync(backupDir)) fs.rmSync(backupDir, { recursive: true, force: true });
+                        if (fs.existsSync(tempUpdatesDir)) fs.rmSync(tempUpdatesDir, { recursive: true, force: true });
+                    } catch (cleanErr) {
+                        console.warn(`[PluginManager] Non-critical cleanup failed:`, cleanErr.message);
+                    }
+                }
             }
         } catch (updateErr) {
             console.error(`[PluginManager] Failed to apply OTA swap:`, updateErr);
@@ -245,6 +313,13 @@ class PluginManager {
             }
         }
         return false;
+    }
+
+    getOtaStatus() {
+        return {
+            swapPerformed: this.otaSwapPerformed,
+            newVersion: this.otaSwapNewVersion
+        };
     }
 }
 
