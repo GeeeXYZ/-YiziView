@@ -134,6 +134,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
     const [crop, setCrop] = useState();
     const [completedCrop, setCompletedCrop] = useState(null);
     const [aspect, setAspect] = useState(undefined);
+    const [canvasAspectRatio, setCanvasAspectRatio] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
     const [targetW, setTargetW] = useState('');
     const [targetH, setTargetH] = useState('');
@@ -556,6 +557,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
         canvas.width = totalW;
         canvas.height = totalH;
+        setCanvasAspectRatio(totalW / totalH);
+        
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
@@ -1462,7 +1465,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 height: '100%',
                                 padding: '1rem'
                             }}>
-                                <div style={{ position: 'relative', display: 'inline-flex', maxWidth: '100%', maxHeight: '100%' }}>
+                                <div style={{ 
+                                    position: 'relative', 
+                                    display: 'inline-flex', 
+                                    maxWidth: '100%', 
+                                    maxHeight: '100%',
+                                    aspectRatio: canvasAspectRatio
+                                }}>
                                     <ReactCrop
                                         crop={editTool === 'crop' ? crop : undefined}
                                         onChange={(c, percentCrop) => {
@@ -1477,8 +1486,8 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                         locked={editTool !== 'crop'}
                                         style={{ 
                                             display: 'flex', 
-                                            maxWidth: '100%', 
-                                            maxHeight: '100%',
+                                            width: '100%', 
+                                            height: '100%',
                                             pointerEvents: editTool === 'crop' ? 'auto' : 'none'
                                         }}
                                         className={editTool !== 'crop' ? 'react-crop-hidden' : ''}
