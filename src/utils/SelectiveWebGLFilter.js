@@ -78,6 +78,7 @@ export class SelectiveWebGLFilter {
             u_midtones: this.gl.getUniformLocation(this.program, "u_midtones"),
             u_highlights: this.gl.getUniformLocation(this.program, "u_highlights"),
             u_curve: this.gl.getUniformLocation(this.program, "u_curve"),
+            u_temperature: this.gl.getUniformLocation(this.program, "u_temperature"),
         };
         
         this.curveTexture = this.gl.createTexture();
@@ -134,6 +135,7 @@ export class SelectiveWebGLFilter {
             uniform vec3 u_shadows;
             uniform vec3 u_midtones;
             uniform vec3 u_highlights;
+            uniform float u_temperature;
             uniform sampler2D u_curve;
             varying vec2 v_texCoord;
 
@@ -195,6 +197,12 @@ export class SelectiveWebGLFilter {
                 color *= u_brightness;
                 color = (color - 0.5) * u_contrast + 0.5;
                 color = clamp(color, 0.0, 1.0);
+
+                if (u_temperature != 0.0) {
+                    color.r += u_temperature * 0.15;
+                    color.b -= u_temperature * 0.15;
+                    color = clamp(color, 0.0, 1.0);
+                }
 
                 color.r = texture2D(u_curve, vec2(color.r, 0.5)).r;
                 color.g = texture2D(u_curve, vec2(color.g, 0.5)).r;
@@ -302,6 +310,9 @@ export class SelectiveWebGLFilter {
         this.gl.uniform1f(this.locations.u_saturation, s);
         this.gl.uniform1f(this.locations.u_hue, h_deg);
         this.gl.uniform1fv(this.locations.u_mods, mods);
+
+        const temp = options.temperature !== undefined ? options.temperature / 100 : 0;
+        this.gl.uniform1f(this.locations.u_temperature, temp);
 
         const intensityPercent = options.gradingIntensity !== undefined ? Number(options.gradingIntensity) : 20;
         const intensityLimit = (intensityPercent / 100) * 0.8;

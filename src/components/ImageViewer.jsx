@@ -50,8 +50,9 @@ const ColorWheel = ({ label, value, onChange }) => {
             <span className="text-[10px] text-gray-400 font-medium">{label}</span>
             <div 
                 ref={wheelRef}
-                className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] cursor-crosshair touch-none flex-shrink-0"
+                className="relative rounded-full shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] cursor-crosshair touch-none"
                 style={{ 
+                    width: '72px', height: '72px', minWidth: '72px', minHeight: '72px', flex: 'none',
                     background: 'conic-gradient(from 90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
                 }}
                 onPointerDown={handlePointerDown}
@@ -91,6 +92,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
 
     // ===== Adjust State =====
     const [adjustBrightness, setAdjustBrightness] = useState(100);
+    const [adjustTemperature, setAdjustTemperature] = useState(0);
     const [adjustContrast, setAdjustContrast] = useState(100);
     const [adjustSaturation, setAdjustSaturation] = useState(100);
     const [adjustHue, setAdjustHue] = useState(0);
@@ -424,6 +426,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         setCropBgColor('#FAFAFA');
 
         setAdjustBrightness(100);
+        setAdjustTemperature(0);
         setAdjustContrast(100);
         setAdjustSaturation(100);
         setAdjustHue(0);
@@ -582,7 +585,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             }
         }
         
-        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0 || adjustTemperature !== 0;
         if (hasAdjustments) {
             ctx.filter = `brightness(${adjustBrightness}%) contrast(${adjustContrast}%) saturate(${adjustSaturation}%) hue-rotate(${adjustHue}deg)`;
         }
@@ -592,13 +595,13 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         ctx.drawImage(img, -img.width / 2, -img.height / 2);
     };
 
-    useEffect(() => { drawRotatedCanvas(); }, [rotation, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, previewObjectURL, editTool, cropBgColor]);
+    useEffect(() => { drawRotatedCanvas(); }, [rotation, adjustBrightness, adjustTemperature, adjustContrast, adjustSaturation, adjustHue, previewObjectURL, editTool, cropBgColor]);
 
     // ===== Selective Saturation Preview Generate =====
     const updateSelectivePreview = useCallback(() => {
         const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
         const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
-        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+        const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0 || adjustTemperature !== 0;
         const hasCurve = adjustCurve.length !== 2 || adjustCurve[0].y !== 0 || adjustCurve[1].y !== 255 || adjustCurve[0].x !== 0 || adjustCurve[1].x !== 255;
         
         if (!hasSelective && !hasGrading && !hasAdjustments && !hasCurve) {
@@ -620,6 +623,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
         img.onload = () => {
             const options = {
                 brightness: adjustBrightness,
+                temperature: adjustTemperature,
                 contrast: adjustContrast,
                 saturation: adjustSaturation,
                 hue: adjustHue,
@@ -642,14 +646,14 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             }, 'image/webp', 0.90);
         };
         img.src = getActiveUrl();
-    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, adjustCurve, image]);
+    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustTemperature, adjustContrast, adjustSaturation, adjustHue, adjustCurve, image]);
 
     useEffect(() => {
         const t = setTimeout(() => {
              updateSelectivePreview();
         }, 30);
         return () => clearTimeout(t);
-    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustContrast, adjustSaturation, adjustHue, updateSelectivePreview]);
+    }, [selectiveSat, gradingShadows, gradingMidtones, gradingHighlights, gradingIntensity, adjustBrightness, adjustTemperature, adjustContrast, adjustSaturation, adjustHue, updateSelectivePreview]);
 
     useEffect(() => {
         return () => {
@@ -885,7 +889,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             setEditTool(null);
             
             // Revert adjust tools on close 
-            setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0);
+            setAdjustBrightness(100); setAdjustTemperature(0); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0);
             setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
             setGradingShadows({x: 0, y: 0}); setGradingMidtones({x: 0, y: 0}); setGradingHighlights({x: 0, y: 0});
             setPreviewObjectURL(null);
@@ -1068,7 +1072,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
             const hasDrawing = drawHistoryRef.current.length > 0;
             const hasCropParams = percentCropRef.current && (percentCropRef.current.width < 100 || percentCropRef.current.height < 100 || percentCropRef.current.x > 0 || percentCropRef.current.y > 0);
             const hasCropOrRotation = editTool === 'crop' && (rotation !== 0 || hasCropParams);
-            const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+            const hasAdjustments = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0 || adjustTemperature !== 0;
             const hasSelective = Object.values(selectiveSat).some(v => v !== 0);
             const hasGrading = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
             const hasCurve = adjustCurve.length !== 2 || adjustCurve[0].y !== 0 || adjustCurve[1].y !== 255 || adjustCurve[0].x !== 0 || adjustCurve[1].x !== 255;
@@ -1085,6 +1089,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                     
                     const options = {
                         brightness: adjustBrightness,
+                        temperature: adjustTemperature,
                         contrast: adjustContrast,
                         saturation: adjustSaturation,
                         hue: adjustHue,
@@ -1519,7 +1524,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 {(() => {
                                     const hasSelectiveOn = Object.values(selectiveSat).some(v => v !== 0);
                                     const hasGradingOn = gradingShadows.x !== 0 || gradingShadows.y !== 0 || gradingMidtones.x !== 0 || gradingMidtones.y !== 0 || gradingHighlights.x !== 0 || gradingHighlights.y !== 0;
-                                    const hasAdjustmentsOn = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0;
+                                    const hasAdjustmentsOn = adjustBrightness !== 100 || adjustContrast !== 100 || adjustSaturation !== 100 || adjustHue !== 0 || adjustTemperature !== 0;
                                     const hasAdvanced = hasSelectiveOn || hasGradingOn || hasAdjustmentsOn;
                                     
                                     return (
@@ -1775,6 +1780,21 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                     />
                                 </div>
 
+                                {/* Temperature */}
+                                <div className="flex items-center gap-3">
+                                    <span className="text-gray-400 text-xs w-16">色温</span>
+                                    <input
+                                        type="range" min="-100" max="100"
+                                        value={adjustTemperature} onChange={(e) => setAdjustTemperature(Number(e.target.value))}
+                                        className="flex-1 h-1 accent-orange-500 cursor-pointer"
+                                    />
+                                    <input
+                                        type="number" min="-100" max="100"
+                                        value={adjustTemperature} onChange={(e) => setAdjustTemperature(Number(e.target.value))}
+                                        className="w-12 bg-neutral-800 text-gray-300 text-xs px-1 rounded border border-neutral-700 text-center focus:outline-none focus:border-orange-500"
+                                    />
+                                </div>
+
                                 {/* Basic Reset */}
                                 <div className="flex justify-between items-center relative mt-1 gap-2">
                                     <button
@@ -1800,7 +1820,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                     )}
 
                                     <button
-                                        onClick={() => { setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); setAdjustCurve([{x:0, y:0}, {x:255, y:255}]); }}
+                                        onClick={() => { setAdjustBrightness(100); setAdjustTemperature(0); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); setAdjustCurve([{x:0, y:0}, {x:255, y:255}]); }}
                                         className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1 transition-colors"
                                     >
                                         <RotateCcw size={10} /> 重置基础调节
@@ -1968,7 +1988,7 @@ const ImageViewer = ({ image, onClose, onNext, onPrev, onDelete, contained = fal
                                 <div className="flex justify-center mt-3 pt-2 border-t border-neutral-800/50">
                                     <button
                                         onClick={() => { 
-                                            setAdjustBrightness(100); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); 
+                                            setAdjustBrightness(100); setAdjustTemperature(0); setAdjustContrast(100); setAdjustSaturation(100); setAdjustHue(0); 
                                             setAdjustCurve([{x:0, y:0}, {x:255, y:255}]);
                                             setSelectiveSat({ reds: 0, yellows: 0, greens: 0, cyans: 0, blues: 0, magentas: 0 });
                                             setGradingShadows({x: 0, y: 0});
