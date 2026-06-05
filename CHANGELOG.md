@@ -1,4 +1,20 @@
-﻿## v0.9.16
+## v0.9.17
+
+✨ Features
+- Add temperature adjustment slider to image editor
+
+🐛 Fixes
+- Fix color wheel aspect ratio deformation in small screens
+
+---
+
+✨ 新功能
+- 图像编辑器新增色温调节滑块
+
+🐛 修复
+- 修复小屏幕下色彩分级面板中的色轮拉伸变形问题
+
+## v0.9.16
 
 馃悰 Fixes
 - Fix severe offset and aspect ratio distortion bugs in the Crop tool caused by CSS layout constraints
