@@ -1404,6 +1404,22 @@ ipcMain.handle('read-library-files', async (event, dirPath) => {
   }
 });
 
+// Added for AIToolkit to read workflow JSONs
+ipcMain.handle('read-workflow-dir', async (event, dirPath) => {
+  try {
+    const fsNode = require('fs');
+    if (!fsNode.existsSync(dirPath)) return [];
+    const stat = fsNode.statSync(dirPath);
+    if (!stat.isDirectory()) return [];
+
+    const files = fsNode.readdirSync(dirPath);
+    return files.filter(f => f.endsWith('.json')).map(f => path.join(dirPath, f));
+  } catch (e) {
+    console.error('read-workflow-dir error:', e);
+    return [];
+  }
+});
+
 const sessionPath = path.join(app.getPath('userData'), 'session.json');
 
 ipcMain.handle('get-session', async () => {

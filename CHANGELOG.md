@@ -1,3 +1,13 @@
+## v0.9.18
+
+✨ Features
+- Add `readWorkflowDir` IPC method for AIToolkit to read workflow JSONs
+
+---
+
+✨ 新特性
+- 增加 `readWorkflowDir` IPC 方法，支持 AIToolkit 读取本地工作流 JSON 文件
+
 ## v0.9.17
 
 ✨ Features

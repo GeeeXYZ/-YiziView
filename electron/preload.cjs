@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electron', {
     copyItems: (sourcePaths, targetPath, overwrite) => ipcRenderer.invoke('copy-items', { sourcePaths, targetPath, overwrite }),
     checkCollisions: (sourcePaths, targetPath) => ipcRenderer.invoke('check-collisions', { sourcePaths, targetPath }),
     readLibraryFiles: (dirPath) => ipcRenderer.invoke('read-library-files', dirPath),
+    readWorkflowDir: (dirPath) => ipcRenderer.invoke('read-workflow-dir', dirPath),
 
     // Drag & Drop
     getFilePath: (file) => {
