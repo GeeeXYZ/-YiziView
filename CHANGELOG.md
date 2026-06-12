@@ -1,3 +1,13 @@
+## v0.9.19
+
+🐛 Fixes
+- Fix Windows builds being incorrectly signed with macOS certificates causing auto-update failures
+
+---
+
+🐛 修复
+- 修复 Windows 安装包被错误打上苹果开发者签名，导致自动更新组件校验失败崩溃的问题
+
 ## v0.9.18
 
 ✨ Features
