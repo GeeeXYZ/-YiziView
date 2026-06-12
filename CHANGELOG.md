@@ -1,3 +1,13 @@
+## v0.9.20
+
+✨ Features
+- Release v0.9.20 to test and verify the Windows auto-update feature
+
+---
+
+✨ 新特性
+- 发布 v0.9.20，用于测试并验证 Windows 客户端的自动更新机制是否恢复正常
+
 ## v0.9.19
 
 🐛 Fixes
