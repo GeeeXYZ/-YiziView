@@ -42,7 +42,6 @@ release
 out
 
 # Plugins
-plugins/*
-!plugins/Yizi-BgRemover/
+plugins/
 CHANGELOG_temp.md_ t m p _ p l u g i n _ p u s h  
  
