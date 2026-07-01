@@ -1,0 +1,8 @@
+{
+  "id": "Yizi-Toolkit",
+  "name": "Yizi Toolkit",
+  "version": "1.0.0",
+  "description": "Unified Toolkit for AI, Background Removal, SVG Vectorization and Card Layouts",
+  "renderer": "renderer.js",
+  "author": "YiziView"
+}

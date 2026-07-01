@@ -765,17 +765,32 @@ const ImageGrid = ({ images = [], onImageClick, onImageDoubleClick, selectedIndi
                 (() => {
                     const pluginContextActions = PluginEngine.getActions()
                         .filter(a => a.showInContextMenu)
-                        .map(a => ({
-                            label: a.name,
-                            icon: <Wand2 size={14} className="text-blue-400" />,
-                            onClick: () => {
-                                const targetPath = contextMenu.filePath;
-                                const affectedPaths = contextMenu.affectedPaths || (targetPath ? [targetPath] : []);
-                                setContextMenu(null);
-                                a.onExecute(affectedPaths);
-                            },
-                            disabled: !contextMenu.filePath
-                        }));
+                        .map(a => {
+                            const opt = {
+                                label: a.name,
+                                icon: <Wand2 size={14} className="text-blue-400" />,
+                                onClick: () => {
+                                    const targetPath = contextMenu.filePath;
+                                    const affectedPaths = contextMenu.affectedPaths || (targetPath ? [targetPath] : []);
+                                    setContextMenu(null);
+                                    if (a.onExecute) a.onExecute(affectedPaths);
+                                },
+                                disabled: !contextMenu.filePath
+                            };
+                            if (a.submenu) {
+                                opt.submenu = a.submenu.map(sub => ({
+                                    label: sub.label,
+                                    icon: sub.icon,
+                                    onClick: () => {
+                                        const targetPath = contextMenu.filePath;
+                                        const affectedPaths = contextMenu.affectedPaths || (targetPath ? [targetPath] : []);
+                                        setContextMenu(null);
+                                        if (sub.onClick) sub.onClick(affectedPaths);
+                                    }
+                                }));
+                            }
+                            return opt;
+                        });
 
                     const baseOptions = [
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleContextOption('cut'), disabled: !contextMenu.filePath },

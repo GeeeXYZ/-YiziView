@@ -113,7 +113,7 @@ function createWindow() {
   });
 
   const isDev = !app.isPackaged;
-  const devUrl = 'http://localhost:5173';
+  const devUrl = 'http://localhost:15173';
   const prodPath = join(__dirname, '../dist/index.html');
 
   if (isDev) {

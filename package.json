@@ -5,7 +5,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"npm run site:dev\" \"wait-on tcp:5173 && npm run electron:dev\"",
+    "dev": "concurrently -k \"npm run site:dev\" \"wait-on tcp:15173 && npm run electron:dev\"",
     "site:dev": "vite",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "build": "vite build && electron-builder",
@@ -27,6 +27,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "plugins/**/*",
       "package.json"
     ],
     "directories": {
