@@ -113,7 +113,7 @@ self.onmessage = async function(e) {
                 self.postMessage({ type: 'success', svg: svgContent });
             }
         } catch (err) {
-            self.postMessage({ type: 'error', error: err.message });
+            self.postMessage({ type: 'error', error: err.stack || err.message || String(err) });
         }
     }
 };

@@ -115,27 +115,28 @@ export class HeadlessImg2Svg {
                 };
                 this.worker.addEventListener('message', handler);
                 
-                // We must handle stringifying options exactly as the worker expects
+                // Post message exactly as the worker expects
                 this.worker.postMessage({
+                    type: 'trace',
+                    engine: options.engine,
                     imgData: imgData,
-                    options: JSON.stringify(options)
+                    options: options
                 });
             });
 
-            if (window.electron && window.electron.saveEditedFile) {
+            if (window.electron && window.electron.saveEditedImage) {
                 if(toastId !== undefined) window.YiziAPI?.updateToast?.(toastId, "保存文件...", 'loading');
-                const svgPath = imagePath.replace(/\.[^/.]+$/, "") + ".vector.svg";
-                // Convert SVG string to buffer or just write it as string
-                // Assuming saveEditedFile takes buffer or string. Or we can create a Blob.
-                const enc = new TextEncoder();
-                const buffer = enc.encode(svgString);
+                const svgPath = imagePath.replace(/\.[^/.]+$/, "") + `_${options.mode || mode}.svg`;
                 
-                await window.electron.saveEditedFile(svgPath, buffer);
+                // Convert SVG string to dataUrl for saveEditedImage
+                const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
+                
+                await window.electron.saveEditedImage(svgPath, dataUrl, true);
                 window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
                 
                 if(toastId !== undefined) window.YiziAPI?.closeToast?.(toastId);
                 toastId = undefined;
-                window.YiziAPI?.showToast?.('矢量化完成，已保存为 .vector.svg', 'success');
+                window.YiziAPI?.showToast?.(`矢量化完成，已保存为 _${options.mode || mode}.svg`, 'success');
             } else {
                 if(toastId !== undefined) window.YiziAPI?.closeToast?.(toastId);
                 toastId = undefined;
@@ -146,7 +147,9 @@ export class HeadlessImg2Svg {
             console.error('[HeadlessImg2Svg]', err);
             if(toastId !== undefined) window.YiziAPI?.closeToast?.(toastId);
             toastId = undefined;
-            window.YiziAPI?.showToast?.(`矢量化失败: ${err.message}`, 'error');
+            // SHOW THE FULL ERROR
+            window.YiziAPI?.showToast?.(`矢量化失败: ${err.message || err}`, 'error');
+            window.YiziAPI?.showToast?.(`详细错误: ${err.stack}`, 'error');
         } finally {
             this.isProcessing = false;
         }

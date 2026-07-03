@@ -269,7 +269,7 @@ export class HeadlessBgRemover {
             if (window.electron && window.electron.saveEditedImage) {
                 if(toastId !== undefined) window.YiziAPI?.updateToast?.(toastId, "正在保存文件...", 'loading');
                 let pngPath = imagePath.replace(/\.[^/.]+$/, "") + "_nobg.png";
-                await window.electron.saveEditedImage(pngPath, resultUrl, false);
+                await window.electron.saveEditedImage(pngPath, resultUrl, true);
                 window.dispatchEvent(new CustomEvent('folder-tree-refresh'));
                 if(toastId !== undefined) window.YiziAPI?.closeToast?.(toastId);
                 toastId = undefined;
